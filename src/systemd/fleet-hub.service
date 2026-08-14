@@ -1,0 +1,18 @@
+[Unit]
+Description=Dharma Fleet Hub v0.5
+After=network-online.target nats-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/agni/fleet_hub
+EnvironmentFile=-/etc/dharma/fleet-hub.env
+Environment=FLEET_HUB_ROOT=/root/agni/fleet_hub
+Environment=NATS_URL=nats://127.0.0.1:4222
+ExecStart=/usr/bin/python3.12 -m uvicorn server:app --host 127.0.0.1 --port 8444 --app-dir /root/agni/fleet_hub
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

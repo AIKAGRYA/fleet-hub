@@ -1,0 +1,201 @@
+{
+  "agents": {
+    "agni-hermes": {
+      "callsign": "hermes",
+      "display_name": "AGNI Hermes",
+      "subject": "dharma.a2a.hermes",
+      "host": "AGNI VPS 157.245.193.15",
+      "tailscale": "100.79.111.89",
+      "role": "Infrastructure / NATS Hub",
+      "model": "glm-5.2",
+      "provider": "zai",
+      "meishi": "agni_infrastructure_anchor",
+      "capabilities": [
+        "nats_broker_management",
+        "a2a_bridge_operation",
+        "infrastructure_audit",
+        "fleet_coordination",
+        "systemd_service_management",
+        "credential_rotation",
+        "hub_convergence"
+      ],
+      "status": "live",
+      "bio": "Infrastructure anchor on AGNI VPS. Runs the canonical NATS/JetStream hub, semantic A2A bridge, and fleet coordination. First responder for infrastructure issues."
+    },
+    "rushabdev": {
+      "callsign": "rushabdev",
+      "display_name": "Rushabdev Hermes",
+      "subject": "dharma.a2a.rushabdev",
+      "host": "Rushabdev VPS 167.172.95.184",
+      "tailscale": "100.113.248.117",
+      "role": "Revenue / Operator Proxy",
+      "model": "glm-5.2",
+      "provider": "ollama-cloud",
+      "meishi": "rushabdev_revenue_router",
+      "capabilities": [
+        "revenue_generation",
+        "x402_api",
+        "bountybook",
+        "argue_fun",
+        "moltbook_engagement",
+        "fleet_status_reporting",
+        "dashboard_operations",
+        "operator_communication"
+      ],
+      "status": "live",
+      "bio": "Revenue router and operator proxy. Hosts the HTTPS mailbox gateway, dashboard A2A Lane, and x402 payment infrastructure. Primary interface for operator communications."
+    },
+    "meghadharma-hermes": {
+      "callsign": "fleet.reply.meghadharma_hermes",
+      "display_name": "Meghadharma Hermes",
+      "subject": "dharma.a2a.fleet.reply.meghadharma_hermes",
+      "host": "Meghadharma VPS 178.128.87.170",
+      "tailscale": "100.103.106.70",
+      "role": "Hub / Semantic Bridge / Global A2A Build",
+      "model": "kimi-k3",
+      "provider": "kimi_code",
+      "meishi": "meghadharma_hub_bridge",
+      "capabilities": [
+        "a2a_semantic_bridge",
+        "fleet_state_projection",
+        "global_a2a_build",
+        "one_pane_operations",
+        "jetstream_kv_management",
+        "codex_composer_replica",
+        "grok_build_gateway",
+        "litestream_backup"
+      ],
+      "status": "live",
+      "bio": "Semantic bridge hub on Meghadharma VPS. Runs the Global A2A build (57 tests, pending production authorization), fleet state projector, one-pane dashboard, and grok-build gateway. Fastest semantic responder (~36s)."
+    },
+    "dharma-command-node": {
+      "callsign": "fleet",
+      "display_name": "Command Node",
+      "subject": "dharma.a2a.fleet",
+      "host": "Rushabdev VPS 167.172.95.184",
+      "tailscale": "100.113.248.117",
+      "role": "Operator Console",
+      "model": "\u2014",
+      "provider": "\u2014",
+      "meishi": "command_node_console",
+      "capabilities": [
+        "operator_console",
+        "message_drain",
+        "task_management",
+        "needs_john_tracking"
+      ],
+      "status": "live",
+      "bio": "Standalone Express/SQLite operator console. Drains fleet messages, tracks tasks and needs-John items. Phone-first interface."
+    },
+    "fleet-state-projector": {
+      "callsign": "fleet.reply.availability_status",
+      "display_name": "Fleet State Projector",
+      "subject": "dharma.a2a.fleet.reply.availability_status",
+      "host": "Meghadharma VPS 178.128.87.170",
+      "tailscale": "100.103.106.70",
+      "role": "Presence Projector",
+      "model": "\u2014",
+      "provider": "\u2014",
+      "meishi": "fleet_state_projector",
+      "capabilities": [
+        "fleet_presence",
+        "availability_projection",
+        "kv_state_publishing"
+      ],
+      "status": "live",
+      "bio": "Projects fleet availability status into JetStream KV. Drains dharma.a2a.fleet.reply.availability_status every ~5 seconds."
+    },
+    "fable_claude_code": {
+      "callsign": "claude",
+      "display_name": "Fable Claude Code",
+      "subject": "dharma.a2a.claude",
+      "host": "Mac (local)",
+      "tailscale": "\u2014",
+      "role": "Coding Seat",
+      "model": "claude",
+      "provider": "anthropic",
+      "meishi": "fable_claude_code",
+      "capabilities": [
+        "code_generation",
+        "code_review",
+        "pr_workflow",
+        "git_operations"
+      ],
+      "status": "offline",
+      "bio": "Claude Code cloud sandbox sessions. Egress proxy blocks hub; git seat is the connection, not a fallback."
+    },
+    "fable_5_cursor": {
+      "callsign": "fable_5_cursor",
+      "display_name": "Fable Cursor",
+      "subject": "dharma.a2a.fable_5_cursor",
+      "host": "Mac (local)",
+      "tailscale": "\u2014",
+      "role": "IDE Coding",
+      "model": "cursor",
+      "provider": "cursor",
+      "meishi": "fable_5_cursor",
+      "capabilities": [
+        "ide_coding",
+        "cli_v0",
+        "a2a_cli"
+      ],
+      "status": "offline",
+      "bio": "Cursor IDE coding seat. Owns the A2A CLI v0 contract. Receive-path fixed 2026-07-14."
+    },
+    "devin-roaming-2987d222": {
+      "callsign": "devin",
+      "display_name": "Devin",
+      "subject": "dharma.a2a.devin",
+      "host": "Devin Cloud",
+      "tailscale": "\u2014",
+      "role": "Autonomous Coding",
+      "model": "devin",
+      "provider": "cognition",
+      "meishi": "devin_roaming",
+      "capabilities": [
+        "autonomous_coding",
+        "pr_creation",
+        "codebase_exploration"
+      ],
+      "status": "offline",
+      "bio": "Devin cloud VM autonomous coding seat. WSS egress to AGNI hub blocked. Git seat verified but never live on NATS."
+    },
+    "perplexity-computer": {
+      "callsign": "perplexity",
+      "display_name": "Perplexity Computer",
+      "subject": "dharma.a2a.perplexity",
+      "host": "Perplexity Cloud",
+      "tailscale": "\u2014",
+      "role": "Research / Architecture",
+      "model": "perplexity",
+      "provider": "perplexity",
+      "meishi": "perplexity_computer",
+      "capabilities": [
+        "research",
+        "architecture_design",
+        "operator_node_development",
+        "hub_conformance_attestation"
+      ],
+      "status": "offline",
+      "bio": "Perplexity Computer cloud sandbox. Built the Dharma Command Node. Stage-1 evidence-only seat. No NATS credentials."
+    },
+    "fable_composer": {
+      "callsign": "fable_composer",
+      "display_name": "Fable Composer",
+      "subject": "dharma.a2a.fable_composer",
+      "host": "Mac (local)",
+      "tailscale": "\u2014",
+      "role": "Fleet Seat",
+      "model": "\u2014",
+      "provider": "\u2014",
+      "meishi": "fable_composer",
+      "capabilities": [
+        "fleet_coordination",
+        "composition"
+      ],
+      "status": "offline",
+      "bio": "Fable-lineage fleet seat. Git seat exists. No live NATS presence."
+    }
+  },
+  "count": 10
+}

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Fleet Hub</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0e14;color:#d4cfc4;font-family:-apple-system,sans-serif;font-size:14px;height:100vh;overflow:hidden}
+.app{display:flex;height:100vh}
+.side{width:200px;min-width:200px;border-right:1px solid rgba(255,255,255,.06);overflow-y:auto;background:#0a0b10}
+.side h1{font-size:15px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);color:#e8e2d4}
+.nav{padding:6px 0}
+.nav div{padding:8px 14px;cursor:pointer;font-size:12px;border-left:2px solid transparent;display:flex;align-items:center;gap:6px}
+.nav div:hover{background:#1a1c24}
+.nav div.on{background:#13151c;border-left-color:#5fa87a}
+.nav .sec{font-size:9px;color:#5a5548;text-transform:uppercase;padding:8px 14px 4px;cursor:default}
+.nav .sec:hover{background:transparent}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.live{background:#5fa87a}.dot.dead{background:rgba(255,255,255,.1)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.bar{padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center}
+.bar b{font-size:14px}
+.cd{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px}
+.cd.on{background:#5fa87a}.cd.off{background:#c44a3c}
+.chat{flex:1;overflow-y:auto;padding:12px 16px}
+.msg{padding:6px 10px;border-radius:6px;margin-bottom:4px;max-width:85%;font-size:13px}
+.msg.me{background:rgba(95,168,122,.08);border:1px solid rgba(95,168,122,.12);margin-left:auto;text-align:right}
+.msg.ot{background:#13151c;border:1px solid rgba(255,255,255,.06)}
+.msg b{font-size:11px;display:block}
+.msg span{font-size:9px;color:#5a5548}
+.msg .dispatch{font-size:10px;color:#5a8ac4;margin-top:4px;border-top:1px solid rgba(255,255,255,.04);padding-top:2px}
+.raw{font-size:11px;font-family:monospace;padding:3px 10px;border-bottom:1px solid rgba(255,255,255,.03);color:#8a8578;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.raw .s{color:#5a5548}.raw .j{color:#5a8ac4}
+.card-page{padding:20px;overflow-y:auto;max-width:600px}
+.card-page h2{font-size:18px;margin-bottom:8px;color:#e8e2d4}
+.card-page .field{display:flex;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:13px}
+.card-page .field .k{color:#5a5548;width:120px;flex-shrink:0}
+.card-page .field .v{color:#d4cfc4}
+.card-page .caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.card-page .cap{font-size:10px;background:rgba(90,138,196,.1);border:1px solid rgba(90,138,196,.15);padding:2px 8px;border-radius:3px;color:#5a8ac4}
+.card-page .bio{font-size:13px;color:#8a8578;margin:12px 0;padding:12px;background:#13151c;border-radius:6px;border:1px solid rgba(255,255,255,.06)}
+.inp{padding:10px 16px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;background:#0a0b10}
+.inp textarea{flex:1;background:#1a1c24;border:1px solid rgba(255,255,255,.06);border-radius:6px;padding:8px 12px;color:#d4cfc4;font-size:13px;resize:none;min-height:38px;max-height:80px;outline:none}
+.inp textarea:focus{border-color:rgba(95,168,122,.3)}
+.inp button{background:#5fa87a;color:#0d0e14;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer}
+.inp button:disabled{opacity:.3}
+.err{color:#c44a3c;font-size:11px;padding:4px 16px}
+.empty{color:#5a5548;padding:40px;text-align:center}
+@media(max-width:600px){.side{width:44px;min-width:44px}.side h1,.nav div:not(.sec):not(.on) span,.nav .sec{display:none}.nav div{justify-content:center}}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="side">
+<h1>⚡Fleet</h1>
+<div class="nav" id="nav">
+<div class="sec">Chat</div>
+<div class="on" id="n-group" onclick="go('group')">💬 <span>Group Chat</span></div>
+<div class="sec">Agents</div>
+<div class="sec">Views</div>
+<div id="n-raw" onclick="go('raw')">📡 <span>Raw NATS</span></div>
+<div id="n-kanban" onclick="go('kanban')">📋 <span>Kanban</span></div>
+<div id="n-evolution" onclick="window.open('/fleet/evolution.html','_blank')">🧬 <span>Self-Evolution</span></div>
+</div>
+</div>
+<div class="main">
+<div class="bar"><b id="title">💬 Group Chat</b><span><span class="cd off" id="d"></span><span id="ds" style="font-size:10px;color:#5a5548">connect…</span></span></div>
+<div class="chat" id="content"><div class="empty">Loading…</div></div>
+<div class="inp" id="inpbar" style="display:none">
+<span id="dmh" style="font-size:10px;color:#5a5548;align-self:center;white-space:nowrap"></span>
+<textarea id="txt" placeholder="Type… (Enter=send)" rows="1" maxlength="500"></textarea>
+<button id="btn" onclick="send()">Send</button>
+</div>
+<div class="err" id="err"></div>
+</div>
+</div>
+<script>
+var B='/fleet',cur='group',curAgent=null,sse=null,roster={},msgs={group:[],raw:[]},amsgs={};
+var content=document.getElementById('content'),inpbar=document.getElementById('inpbar'),
+txt=document.getElementById('txt'),btn=document.getElementById('btn'),
+titleEl=document.getElementById('title'),d=document.getElementById('d'),ds=document.getElementById('ds'),
+dmh=document.getElementById('dmh'),errEl=document.getElementById('err');
+
+function showErr(e){errEl.textContent=e;setTimeout(function(){errEl.textContent=''},5000)}
+
+async function init(){
+  try{
+    var r=await fetch(B+'/api/roster');roster=(await r.json()).agents||{};
+    var nav=document.getElementById('nav');var vs=null;
+    for(var s of nav.querySelectorAll('.sec')){if(s.textContent==='Views'){vs=s;break}}
+    for(var uid in roster){(function(u,info){
+      var el=document.createElement('div');el.id='n-agent-'+u;
+      var dot=document.createElement('span');dot.className='dot '+(info.status==='live'?'live':'dead');
+      var label=document.createElement('span');label.textContent=info.display_name||u;
+      el.appendChild(dot);el.appendChild(label);
+      el.onclick=function(){go('agent:'+u)};
+      vs?vs.parentNode.insertBefore(el,vs):nav.appendChild(el);
+    })(uid,roster[uid])}
+  }catch(e){showErr('roster: '+e)}
+  try{
+    var r2=await fetch(B+'/api/chat');var d2=await r2.json();
+    if(d2.messages)msgs.group=d2.messages.map(function(m){return{from:m.from,text:m.text,ts:m.ts}});
+  }catch(e){}
+  go('group');
+}
+
+function go(v){
+  cur=v;curAgent=null;
+  document.querySelectorAll('.nav div').forEach(function(e){e.classList.remove('on')});
+  var ne=document.getElementById('n-'+v.replace(':','-'));if(ne)ne.classList.add('on');
+  if(sse){sse.close();sse=null}
+  if(v==='group'){titleEl.textContent='💬 Group Chat';inpbar.style.display='flex';dmh.textContent='';renderMsgs('group');connect('group')}
+  else if(v==='raw'){titleEl.textContent='📡 Raw NATS Feed';inpbar.style.display='none';renderRaw();connect('raw')}
+  else if(v==='kanban'){titleEl.textContent='📋 Kanban';inpbar.style.display='none';renderKanban()}
+  else if(v.indexOf('agent:')===0){
+    var uid=v.split(':')[1];curAgent=uid;var info=roster[uid]||{};
+    if(info.display_name){renderAgentCard(uid,info);inpbar.style.display='flex';dmh.textContent='DM:';connect('agent:'+uid)}
+    else{titleEl.textContent='🤖 '+uid;inpbar.style.display='flex';dmh.textContent='DM:';renderMsgs('agent:'+uid);connect('agent:'+uid)}
+  }
+}
+
+function renderAgentCard(uid,info){
+  titleEl.textContent='🤖 '+(info.display_name||uid);
+  content.innerHTML='';
+  var page=document.createElement('div');page.className='card-page';
+  var h=document.createElement('h2');h.textContent=info.display_name||uid;page.appendChild(h);
+  var st=document.createElement('div');st.style.marginBottom='12px';
+  var stDot=document.createElement('span');stDot.className='dot '+(info.status==='live'?'live':'dead');
+  stDot.style.marginRight='4px';
+  var stTxt=document.createElement('span');stTxt.style.fontSize='11px';stTxt.textContent=info.status||'unknown';
+  st.appendChild(stDot);st.appendChild(stTxt);page.appendChild(st);
+  var fields=[['Role',info.role],['Host',info.host],['Tailscale',info.tailscale],['NATS Subject',info.subject],
+    ['Model',info.model],['Provider',info.provider],['Meishi',info.meishi],['Callsign',info.callsign]];
+  fields.forEach(function(f){
+    var row=document.createElement('div');row.className='field';
+    var k=document.createElement('div');k.className='k';k.textContent=f[0];
+    var v=document.createElement('div');v.className='v';v.textContent=f[1]||'—';
+    row.appendChild(k);row.appendChild(v);page.appendChild(row);
+  });
+  if(info.bio){var bio=document.createElement('div');bio.className='bio';bio.textContent=info.bio;page.appendChild(bio)}
+  if(info.capabilities&&info.capabilities.length){
+    var capsDiv=document.createElement('div');capsDiv.style.marginTop='8px';
+    var capsLabel=document.createElement('div');capsLabel.style.fontSize='11px';capsLabel.style.color='#5a5548';capsLabel.style.marginBottom='4px';
+    capsLabel.textContent='Capabilities';capsDiv.appendChild(capsLabel);
+    var capsWrap=document.createElement('div');capsWrap.className='caps';
+    info.capabilities.forEach(function(c){
+      var cap=document.createElement('span');cap.className='cap';cap.textContent=c;capsWrap.appendChild(cap);
+    });
+    capsDiv.appendChild(capsWrap);page.appendChild(capsDiv);
+  }
+  // Chat section
+  var chatHeader=document.createElement('h3');
+  chatHeader.style.fontSize='13px';chatHeader.style.color='#5a5548';chatHeader.style.marginTop='20px';
+  chatHeader.style.marginBottom='8px';chatHeader.style.textTransform='uppercase';chatHeader.style.letterSpacing='.1em';
+  chatHeader.textContent='Direct Messages';
+  page.appendChild(chatHeader);
+  var chatDiv=document.createElement('div');chatDiv.id='agent-chat-area';
+  chatDiv.style.maxHeight='300px';chatDiv.style.overflowY='auto';
+  chatDiv.style.border='1px solid rgba(255,255,255,.06)';chatDiv.style.borderRadius='6px';chatDiv.style.padding='8px';
+  page.appendChild(chatDiv);
+  content.appendChild(page);
+  // Render existing DMs
+  var m=amsgs[uid]||[];
+  var area=document.getElementById('agent-chat-area');
+  if(!m.length){area.innerHTML='<div style="color:#5a5548;padding:20px;text-align:center;font-size:12px">No messages yet. Type below to start.</div>'}
+  else{m.forEach(function(x){addMsgTo(x.from,x.text,x.ts,x.from==='operator',area)})}
+}
+
+function connect(ch){
+  try{
+    sse=new EventSource(B+'/events/'+encodeURIComponent(ch));
+    sse.onopen=function(){d.className='cd on';ds.textContent='live'};
+    sse.onmessage=function(e){
+      try{var ev=JSON.parse(e.data);if(ev.type==='connected')return;handle(ev,ch)}catch(x){}
+    };
+    sse.onerror=function(){
+      d.className='cd off';ds.textContent='retry…';
+      try{sse.close()}catch(x){}
+      var sv=cur,sa=curAgent;
+      setTimeout(function(){if(cur===sv)connect(ch)},3000);
+    };
+  }catch(e){showErr('SSE: '+e)}
+}
+
+function handle(ev,ch){
+  var data=ev.data||{};
+  if(ch==='raw'){msgs.raw.push(ev);if(cur==='raw')addRaw(ev);return}
+  var from=data.from||'system',text=data.text||data.body||'',ts=data.timestamp||ev.timestamp||'';
+  if(!text)return;
+  if(ch==='group'){msgs.group.push({from:from,text:text,ts:ts,dispatch:data.dispatch});if(cur==='group')addMsg(from,text,ts,false,data.dispatch)}
+  else if(ch.indexOf('agent:')===0){
+    var uid=ch.split(':')[1];if(!amsgs[uid])amsgs[uid]=[];
+    amsgs[uid].push({from:from,text:text,ts:ts});
+    if(cur==='agent:'+uid){
+      var area=document.getElementById('agent-chat-area');
+      if(area)addMsgTo(from,text,ts,from==='operator',area);
+    }
+  }
+}
+
+function renderMsgs(ch){
+  content.innerHTML='';
+  var m=ch==='group'?msgs.group:(ch.indexOf('agent:')===0?(amsgs[ch.split(':')[1]]||[]):[]);
+  if(!m.length){content.innerHTML='<div class="empty">No messages. Type below.</div>';return}
+  m.forEach(function(x){addMsg(x.from,x.text,x.ts,x.from==='operator',x.dispatch)});
+}
+
+function addMsg(from,text,ts,me,dispatch){
+  var div=document.createElement('div');div.className='msg '+(me?'me':'ot');
+  var b=document.createElement('b');b.textContent=from;
+  var t=document.createElement('div');t.textContent=text;
+  div.appendChild(b);div.appendChild(t);
+  if(dispatch){
+    var dp=document.createElement('div');dp.className='dispatch';
+    dp.textContent='→ dispatched to '+dispatch.agent+' ('+Math.round((dispatch.confidence||0)*100)+'%): '+dispatch.decision;
+    div.appendChild(dp);
+  }
+  if(ts){var s=document.createElement('span');s.textContent=new Date(ts).toLocaleTimeString();div.appendChild(s)}
+  content.appendChild(div);content.scrollTop=content.scrollHeight;
+  while(content.children.length>200)content.removeChild(content.firstChild);
+}
+
+function addMsgTo(from,text,ts,me,area){
+  var div=document.createElement('div');div.className='msg '+(me?'me':'ot');
+  div.style.marginBottom='4px';
+  var b=document.createElement('b');b.textContent=from;
+  var t=document.createElement('div');t.textContent=text;
+  div.appendChild(b);div.appendChild(t);
+  if(ts){var s=document.createElement('span');s.textContent=new Date(ts).toLocaleTimeString();div.appendChild(s)}
+  area.appendChild(div);area.scrollTop=area.scrollHeight;
+  while(area.children.length>200)area.removeChild(area.firstChild);
+}
+
+function renderRaw(){
+  content.innerHTML='';
+  if(!msgs.raw.length){content.innerHTML='<div class="empty">Waiting for NATS traffic…</div>';return}
+  msgs.raw.slice(-100).forEach(addRaw);
+}
+
+function addRaw(ev){
+  var div=document.createElement('div');div.className='raw';
+  var s=document.createElement('span');s.className='s';s.textContent='#'+(ev.seq||'—')+' ';
+  var j=document.createElement('span');j.className='j';j.textContent=(ev.subject||'')+' ';
+  var d=ev.data||{};var b=document.createTextNode((d.from||'')+': '+((d.text||d.body||d.kind||'').substring(0,100)));
+  div.appendChild(s);div.appendChild(j);div.appendChild(b);
+  content.appendChild(div);content.scrollTop=content.scrollHeight;
+  while(content.children.length>200)content.removeChild(content.firstChild);
+}
+
+async function renderKanban(){
+  content.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    var r=await fetch(B+'/api/kanban');var d=await r.json();
+    content.innerHTML='';
+    if(d.tasks&&d.tasks.length){d.tasks.forEach(function(t){
+      var div=document.createElement('div');div.className='raw';
+      div.style.padding='8px 10px';div.style.borderBottom='1px solid rgba(255,255,255,.06)';
+      div.textContent=(t.id||t.title||'')+': '+(t.title||t.spec||'')+' ['+(t.status||'')+']';
+      content.appendChild(div);
+    })}else{content.innerHTML='<div class="empty">No tasks.</div>'}
+  }catch(e){content.innerHTML='<div class="empty">Kanban unavailable.</div>'}
+}
+
+async function send(){
+  var text=txt.value.trim();if(!text)return;
+  btn.disabled=true;txt.value='';txt.style.height='auto';
+  try{
+    var body={from_:'operator',text:text};
+    if(curAgent)body.to=curAgent;else body.to='group';
+    var r=await fetch(B+'/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(!d.ok){showErr('Send failed: '+(d.error||'unknown'))}
+    else{
+      if(cur==='group'){addMsg('operator',text,new Date().toISOString(),true,d.dispatch)}
+      else if(curAgent){
+        var area=document.getElementById('agent-chat-area');
+        if(area)addMsgTo('operator',text,new Date().toISOString(),true,area);
+      }
+    }
+  }catch(e){showErr('Send: '+e.message)}
+  finally{btn.disabled=false;txt.focus()}
+}
+
+txt.addEventListener('input',function(){txt.style.height='auto';txt.style.height=Math.min(txt.scrollHeight,80)+'px'});
+txt.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+init();
+</script>
+</body>
+</html>
