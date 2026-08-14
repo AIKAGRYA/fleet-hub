@@ -1,0 +1,49 @@
+{
+  "schema": "fleet_vision.v1",
+  "north_star": "One organism — AIs, infrastructure, and ventures coordinated and steerable from the palm of the hand.",
+  "updated": "2026-08-14",
+  "ventures": [
+    {
+      "id": "fleet",
+      "name": "The Fleet Itself",
+      "line": "Bridges live, keys vaulted, heartbeats truthful — the organism's own body",
+      "missions": []
+    },
+    {
+      "id": "darshan",
+      "name": "Darshan",
+      "line": "Publication venture — the voice of clear seeing, serving external humans",
+      "missions": []
+    },
+    {
+      "id": "trading",
+      "name": "Trading Lab",
+      "line": "Revenue experiments with receipted P&L",
+      "missions": []
+    },
+    {
+      "id": "sab",
+      "name": "SAB",
+      "line": "Autonomous agent business surface",
+      "missions": []
+    },
+    {
+      "id": "tam",
+      "name": "TAM",
+      "line": "Total addressable mission analysis",
+      "missions": []
+    },
+    {
+      "id": "rsi",
+      "name": "RSI",
+      "line": "Recursive self-improvement of the organism",
+      "missions": []
+    },
+    {
+      "id": "mech-interp",
+      "name": "Mech Interp Lab",
+      "line": "Mechanistic interpretability research",
+      "missions": []
+    }
+  ]
+}
