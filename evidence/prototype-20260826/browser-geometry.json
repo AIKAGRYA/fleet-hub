@@ -1,0 +1,65 @@
+{
+  "schema_version": "fleet.prototype.browser_evidence.v1",
+  "observed_at": "2026-08-26T14:37:07Z",
+  "build_base_commit": "94a14929a5711995b05cf587cb0b0c5e39d84320",
+  "evidence_mode": "fixture",
+  "source_instance": "browser_demo.fixture",
+  "generated_by_fixture": true,
+  "production_effects": false,
+  "server": {
+    "binding": "127.0.0.1:8777",
+    "lifespan": "off",
+    "nats_contact": false,
+    "deployment": false
+  },
+  "captures": [
+    {
+      "id": "helm-390x844",
+      "path": "fleet-hub-helm-390x844.png",
+      "sha256": "e9dd0c29d68ec346b36b3c2229f5d34eef3429a9d39eb6f79349b37142ae0ae0",
+      "viewport": {"width": 390, "height": 844},
+      "root_font_px": 15,
+      "document_scroll_width": 390,
+      "horizontal_page_overflow": false,
+      "visible_interactive_targets": 8,
+      "interactive_targets_below_44px": [],
+      "persistent_simulation_banner": true,
+      "tabs": ["Helm", "Chat", "Board", "Trace", "Roster"],
+      "hero": "Fleet Hub browser qualification",
+      "connection_dimensions": [
+        "Browser: Live",
+        "Hub: Healthy",
+        "NATS: Connected",
+        "Owner: Available",
+        "Mission: expired_lease"
+      ]
+    },
+    {
+      "id": "board-running-320x844",
+      "path": "fleet-hub-board-running-320x844.png",
+      "sha256": "99edaad8da6032242265d5afd5ddd1da7b17069b36d4d980c07f16aedd7172c5",
+      "viewport": {"width": 320, "height": 844},
+      "root_font_px": 15,
+      "document_scroll_width": 320,
+      "horizontal_page_overflow": false,
+      "intentional_board_scroller": {"client_width": 320, "scroll_width": 2577},
+      "visible_interactive_targets": 6,
+      "interactive_targets_below_44px": [],
+      "persistent_simulation_banner": true,
+      "tabs": ["Helm", "Chat", "Board", "Trace", "Roster"],
+      "mapping": "fleet.board.lanes.taskboard.v1",
+      "lanes": {
+        "Queue": 0,
+        "Assigned": 0,
+        "Running": 1,
+        "Review": 0,
+        "Done": 0,
+        "Failed": 0,
+        "Cancelled": 0,
+        "Quarantined": 0,
+        "Unmapped": 0
+      },
+      "commands_unavailable": true
+    }
+  ]
+}

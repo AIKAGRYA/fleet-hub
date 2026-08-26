@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-state_mod = pytest.importorskip("hub.state")
+from hub import state as state_mod
 
 
 class TestEventBusPublish:
@@ -26,9 +26,12 @@ class TestEventBusPublish:
         assert env["event"] == "presence"
         assert env["data"] == {"uid": "x"}
 
-    def test_epoch_is_integer_string(self):
+    def test_epoch_is_random_hex_process_identity(self):
         bus = state_mod.EventBus()
-        int(bus.epoch)  # raises if not numeric
+        assert len(bus.epoch) == 16
+        int(bus.epoch, 16)  # raises if not hex
+        assert bus.epoch != state_mod.EventBus().epoch
+        assert bus.resume_scope == "process_local"
 
 
 class TestEventBusSince:
@@ -91,6 +94,25 @@ class TestEventBusAttachDetach:
         bus.publish("chat", {})
         assert q.empty()
 
+    def test_overflow_collapses_to_explicit_reset(self):
+        bus = state_mod.EventBus(capacity=2)
+        q = bus.attach()
+        bus.publish("chat", {"n": 1})
+        bus.publish("chat", {"n": 2})
+        bus.publish("chat", {"n": 3})
+        reset = q.get_nowait()
+        assert reset["event"] == "reset_required"
+        assert reset["data"] == {
+            "reason": "subscriber_overflow",
+            "resume_scope": "process_local",
+        }
+
+    def test_client_bound_is_enforced(self):
+        bus = state_mod.EventBus(max_clients=1)
+        bus.attach()
+        with pytest.raises(state_mod.TooManySubscribers):
+            bus.attach()
+
 
 class TestSentIds:
     def test_membership(self):
@@ -122,5 +144,65 @@ class TestHubState:
         assert st.messages == 0
         assert st.last_seq is None
         assert isinstance(st.bus, state_mod.EventBus)
+        assert isinstance(st.idempotency, state_mod.IdempotencyStore)
         assert set(st.replay.keys()) >= {"ok", "scanned", "took_ms", "error", "ran_at"}
         assert st.replay["ok"] is None
+
+
+class TestIdempotencyStore:
+    @pytest.mark.asyncio
+    async def test_same_key_same_body_reuses_result(self):
+        store = state_mod.IdempotencyStore()
+        calls = 0
+
+        async def operation():
+            nonlocal calls
+            calls += 1
+            return {"accepted": True, "n": calls}
+
+        first, first_reused = await store.run(
+            principal="p", key="k", fingerprint="f", operation=operation
+        )
+        second, second_reused = await store.run(
+            principal="p", key="k", fingerprint="f", operation=operation
+        )
+        assert first == second == {"accepted": True, "n": 1}
+        assert first_reused is False
+        assert second_reused is True
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_same_key_different_body_conflicts(self):
+        store = state_mod.IdempotencyStore()
+
+        async def operation():
+            return {"accepted": True}
+
+        await store.run(
+            principal="p", key="k", fingerprint="one", operation=operation
+        )
+        with pytest.raises(state_mod.IdempotencyConflict):
+            await store.run(
+                principal="p", key="k", fingerprint="two", operation=operation
+            )
+
+    @pytest.mark.asyncio
+    async def test_unaccepted_result_is_not_retained(self):
+        store = state_mod.IdempotencyStore()
+        calls = 0
+
+        async def operation():
+            nonlocal calls
+            calls += 1
+            return {"accepted": False, "n": calls}
+
+        for _ in range(2):
+            _, reused = await store.run(
+                principal="p",
+                key="k",
+                fingerprint="f",
+                operation=operation,
+                cache_if=lambda result: result["accepted"],
+            )
+            assert reused is False
+        assert calls == 2

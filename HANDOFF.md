@@ -1,58 +1,64 @@
-# Fleet Hub frontend — handoff
+# Fleet Hub v1 candidate — implementation handoff
 
-**GitHub (what a remote Claude agent should clone):** https://github.com/AIKAGRYA/fleet-hub
+Canonical repository: <https://github.com/AIKAGRYA/fleet-hub>
 
-On-box copy: `/root/fleet_hub_frontend_handoff`
+## Start here
 
-This is the current Fleet Hub UI codebase. It is **not** `dharma_swarm` and **not** the Megha Command dashboard (`command.178-128-87-170.nip.io`). Those are different products.
+The maintained implementation is in `src/`. It is a modular FastAPI service
+and zero-build PWA, not the older single-file AGNI deployment and not a
+`dharma_swarm` dashboard.
 
-## What to edit
+Read in this order:
 
-| File | Role |
-|---|---|
-| `src/static/index.html` | **The frontend.** One HTML file: CSS + markup + JS. ~323 lines. No React/Next/Vite. |
-| `src/server.py` | FastAPI backend the UI already talks to. Change only if the UI needs a new endpoint. |
-| `src/roster.json` | Static agent cards. v0.5 already overlays last-seen from NATS. |
+1. `docs/FLEET_HUB_V1_IMPLEMENTATION.md` — current implementation and blockers
+2. `CLAUDE.md` — authority, security, and product invariants
+3. `src/README.md` — runtime/API details
+4. `DEPLOY_AGNI.md` — qualification procedure; not standing deploy authority
 
-Live production is still **v0.4** at https://157.245.193.15/fleet/ (snapshot in `live_v04/`). v0.5 in `src/` is staged on Meghadharma and **not installed on AGNI yet**. Build against `src/` so we don't regress the token gate / presence / mobile tabs already written.
+## Authority boundary
 
-## Read first
+| Concern | Owner | Fleet Hub role |
+|---|---|---|
+| Task state | TaskBoard | Read projection; commands only when owner contracts exist |
+| Attempts, leases, runtime receipts | RuntimeStateStore | Read through Mission Control |
+| Joined mission truth | Mission Control | Validate, redact, render, and label freshness |
+| Message storage/transport | governed NATS/JetStream fabric | Canonical chat intent ingress and bounded projection |
+| Roster identity | canonical roster/config owner | Render stable UID and provenance |
+| Needs John | deterministic query over owner state | Derive; never persist as a second queue |
+| UI route and drafts | browser memory | Ephemeral client state only |
 
-1. `FLEET_HUB_BUILD_SPEC.md` — operator vision, API, Slack-like UX, acceptance (phone).
-2. `OPERATOR_25.md` — John's 25-item punch list. P0 first.
-3. `src/README.md` — what v0.5 already added vs 0.4.
-4. `live_v04/` — what the operator actually sees today.
+The production owner-service transport is intentionally not guessed. With no
+adapter, mission reads return a typed unavailable response rather than an empty
+board. Board controls remain disabled because the owner lacks an atomic
+expected-version transition.
 
-## Constraints
+Fleet Hub's current `source_version` is a deterministic projection digest. It
+is useful for pagination and invalidation, but it is not an owner CAS/version
+and must never authorize a mutation.
 
-- Base path is `/fleet`. Caddy strips it. All `fetch`/`EventSource` must use `/fleet/...`.
-- Phone-first (iPhone Safari). Operator is on the phone ~90% of the time.
-- Dark theme in the spec (`#0d0e14` / `#13151c` / `#d4cfc4`). Light toggle is P3.
-- Do **not** invent a second bus. Talk to the existing FastAPI + NATS SSE.
-- Do **not** put tokens, NATS passwords, or SSH keys in the repo or the page.
-- AGNI SSH from Meghadharma is still denied. Ship a drop-in `src/` tree; install is a later step (`src/install_on_agni.sh`).
-- Agent replies in chat are a **bridge** problem, not a CSS problem. UI must still show send + SSE + empty/error honestly.
+## What another implementer may safely continue
 
-## P0 for this agent
+- Add an authenticated, read-only Mission Provider transport without granting
+  filesystem/database access to Fleet Hub.
+- Add a canonical owner command only after its authorization, atomic versioning,
+  idempotency, receipt, and error semantics are reviewed together.
+- Strengthen bounded trace, topology, and route projections from allowlisted
+  owner APIs.
+- Run the real iPhone/Safari, VoiceOver, reconnect, background, and standalone
+  qualification matrix.
 
-1. Token gate that actually works against `src/server.py` (`/login`, Bearer, cookie).
-2. Live/dead + last-seen from API, not hardcoded `live`.
-3. Health panel (broker + last-seen) visible on phone.
-4. Mobile layout that doesn't require a laptop.
-5. Optional browser notifications for new messages.
+Do not invent a local kanban, infer liveness from receipts, flatten group
+transcript publication into responder fan-out, or display a command as executed
+because an ingress layer accepted it.
 
-Then P1/P2 from `OPERATOR_25.md`. Slack-like threading/search is in the spec; don't block P0 on it.
-
-## Local run (Meghadharma)
+## Local gate
 
 ```bash
-cd /root/fleet_hub_frontend_handoff/src
-python3 server.py   # or uvicorn; binds like fleet-hub (8444)
-# UI expects to be served under /fleet/
+uv sync --locked --group dev
+uv run --no-sync python -m compileall -q src
+uv run --no-sync pytest -q
+git diff --check
 ```
 
-Live check of current production (read-only): `https://157.245.193.15/fleet/`
-
-## Done when
-
-iPhone can open the hub, log in, see real agent last-seen, send a group message, and watch SSE without a laptop. Receipt: screenshots + which of the 25 items closed.
+The PWA can then be exercised locally with a disposable test token as documented
+in `README.md`. Production installation is a later, named operator action.

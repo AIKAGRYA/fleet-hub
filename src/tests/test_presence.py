@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-presence = pytest.importorskip("hub.presence")
+from hub import presence
 
 
 class TestFreshness:
@@ -100,9 +100,17 @@ class TestDecorate:
     def rows(self, roster, frozen_now):
         pres = {
             # fresh, heard
-            "meghadharma-hermes": {"last_heard": frozen_now - 10, "last_addressed": None},
+            "meghadharma-hermes": {
+                "last_heard": frozen_now - 10,
+                "last_heard_verification": "identity_bound_transport",
+                "last_addressed": None,
+            },
             # stale, heard
-            "agni-hermes": {"last_heard": frozen_now - 8000, "last_addressed": None},
+            "agni-hermes": {
+                "last_heard": frozen_now - 8000,
+                "last_heard_verification": "owner_verified",
+                "last_addressed": None,
+            },
             # archived seat: addressed only
             "fable_composer": {"last_heard": None, "last_addressed": frozen_now - 50},
         }
@@ -151,3 +159,31 @@ class TestDecorate:
         assert row["contact"] == "never"
         assert row["last_seen"] is None
         assert row["status"] == "offline"
+
+    def test_unverified_payload_claim_cannot_make_roster_fresh(
+        self, roster, frozen_now
+    ):
+        rows = presence.decorate(
+            roster["agents"],
+            {
+                "agni-hermes": {
+                    "last_heard": frozen_now,
+                    "last_heard_source": "nats.payload_sender_claim",
+                    "last_heard_verification": "reported_unverified",
+                    "last_reported_heard": frozen_now,
+                    "last_reported_sender": "hermes",
+                    "last_reported_heard_source": "nats.payload_sender_claim",
+                }
+            },
+            frozen_now,
+        )
+        row = next(item for item in rows if item["uid"] == "agni-hermes")
+        assert row["last_heard"] is None
+        assert row["freshness"] == "never"
+        assert row["contact"] == "never"
+        assert row["status"] == "offline"
+        assert row["signals"]["reported_sender"]["value"] == "hermes"
+        assert (
+            row["signals"]["reported_sender"]["verification"]
+            == "reported_unverified"
+        )
