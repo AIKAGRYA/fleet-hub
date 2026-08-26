@@ -1,86 +1,105 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Fleet">
-<meta name="theme-color" content="#0d0e14">
-<meta name="description" content="Fleet Hub — phone-first operator console for the dharma fleet.">
-<title>Fleet Hub</title>
-<link rel="manifest" href="static/manifest.webmanifest">
-<link rel="apple-touch-icon" href="static/icons/icon-180.png">
-<link rel="icon" href="static/icons/icon-192.png" type="image/png">
-<link rel="stylesheet" href="static/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fleet Hub">
+  <meta name="theme-color" content="#0d0e14">
+  <meta name="description" content="Fleet Hub — a phone-first, evidence-aware fleet operator console.">
+  <title>Helm · Fleet Hub</title>
+  <link rel="manifest" href="static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="static/icons/icon-180.png">
+  <link rel="icon" href="static/icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
+  <a class="skip-link" href="#view">Skip to content</a>
 
-<!-- ============ GATE (full-screen, outside #app; tabs live inside #app only) ============ -->
-<section id="gate" hidden aria-label="Operator gate">
-  <div class="gate-box">
-    <div class="seal" aria-hidden="true">FLEET</div>
-    <p class="eyebrow gate-eyebrow">Operator hub &middot; v0.6</p>
-    <div id="gate-banner" class="gate-banner" role="alert" hidden></div>
-    <form id="gate-form" autocomplete="on">
-      <label class="visually-hidden" for="gate-token">Operator token</label>
-      <input id="gate-token" type="password" inputmode="text" autocomplete="current-password"
-             autocapitalize="off" spellcheck="false" placeholder="operator token">
-      <button id="gate-btn" type="submit">unlock</button>
-    </form>
-    <p id="gate-err" class="gate-err" role="alert"></p>
-    <p class="gate-note mono">one token per fleet &middot; session held as HttpOnly cookie</p>
+  <section id="gate" hidden aria-labelledby="gate-title">
+    <div class="gate-box">
+      <div class="seal" aria-hidden="true">FLEET</div>
+      <h1 id="gate-title" class="eyebrow gate-eyebrow">Operator hub</h1>
+      <div id="gate-banner" class="gate-banner" role="alert" hidden></div>
+      <form id="gate-form" autocomplete="on">
+        <label for="gate-token">Operator token</label>
+        <input id="gate-token" name="token" type="password" autocomplete="current-password"
+               autocapitalize="off" spellcheck="false">
+        <button id="gate-btn" type="submit">Unlock Fleet Hub</button>
+      </form>
+      <p id="gate-err" class="gate-err" role="alert" aria-live="assertive"></p>
+      <p class="gate-note mono">The token is exchanged for a secure cookie and is not stored by this app.</p>
+    </div>
+  </section>
+
+  <div id="app" hidden>
+    <header id="topbar">
+      <div class="brand">
+        <span class="seal seal--mini" aria-hidden="true">F</span>
+        <span class="brand-name eyebrow">Fleet Hub</span>
+      </div>
+      <div class="top-actions">
+        <button id="needs-toggle" class="needs-toggle" type="button" aria-controls="needs-rail"
+                aria-expanded="false">
+          <span>Needs John</span>
+          <span id="needs-badge" class="needs-badge" aria-label="Unavailable">—</span>
+        </button>
+        <div class="conn" role="status" aria-live="polite">
+          <span id="conn-dot" class="conn-dot conn-dot--off" aria-hidden="true"></span>
+          <span id="conn-label" class="conn-label mono">offline</span>
+        </div>
+      </div>
+    </header>
+
+    <div id="mode-banner" class="mode-banner" role="status" hidden>
+      <span class="mode-banner__label">Simulation</span>
+      <span id="mode-banner-copy">Fixture data · no production effect</span>
+    </div>
+
+    <main id="view" tabindex="-1"></main>
+
+    <nav id="tabs" aria-label="Primary">
+      <a class="tab" href="#/helm" data-view="helm">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg>
+        <span>Helm</span>
+      </a>
+      <a class="tab" href="#/chat" data-view="chat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Chat</span>
+      </a>
+      <a class="tab" href="#/board" data-view="board">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16M15 4v16"/></svg>
+        <span>Board</span>
+      </a>
+      <a class="tab" href="#/trace" data-view="trace">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+        <span>Trace</span>
+      </a>
+      <a class="tab" href="#/roster" data-view="roster">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M6.6 8.1 10.7 15.7M17.4 8.1 13.3 15.7M7.5 6h9"/></svg>
+        <span>Roster</span>
+      </a>
+    </nav>
   </div>
-</section>
 
-<!-- ============ APP SHELL ============ -->
-<div id="app" hidden>
-  <header id="topbar">
-    <div class="brand">
-      <span class="seal seal--mini" aria-hidden="true">F</span>
-      <span class="brand-name eyebrow">Fleet Hub</span>
-    </div>
-    <div class="conn" aria-live="polite">
-      <span id="conn-dot" class="conn-dot conn-dot--off"></span>
-      <span id="conn-label" class="conn-label mono">off</span>
-    </div>
-  </header>
+  <div id="rail-scrim" class="rail-scrim" aria-hidden="true" hidden></div>
+  <aside id="needs-rail" class="needs-rail" role="dialog" aria-modal="true"
+         aria-labelledby="needs-title" aria-describedby="needs-state" aria-hidden="true"
+         tabindex="-1" hidden>
+    <header class="rail-head">
+      <div>
+        <p class="eyebrow">Decision rail</p>
+        <h2 id="needs-title">Needs John</h2>
+      </div>
+      <button id="needs-close" class="icon-button" type="button" aria-label="Close Needs John">×</button>
+    </header>
+    <div id="needs-state" class="rail-state" role="status" aria-live="polite"></div>
+    <div id="needs-list" class="needs-list"></div>
+    <footer class="provenance">Projection only · actions require owner authority</footer>
+  </aside>
 
-  <main id="view" tabindex="-1" aria-live="off"></main>
-
-  <nav id="tabs" aria-label="Primary">
-    <a class="tab" href="#/now" data-view="now">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/>
-      </svg>
-      <span>Now</span>
-    </a>
-    <a class="tab" href="#/talk" data-view="talk">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-      </svg>
-      <span>Talk</span>
-    </a>
-    <a class="tab" href="#/fleet" data-view="fleet">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/>
-        <path d="M6.6 8.1 10.7 15.7"/><path d="M17.4 8.1 13.3 15.7"/><path d="M7.5 6h9"/>
-      </svg>
-      <span>Fleet</span>
-    </a>
-    <a class="tab" href="#/flow" data-view="flow">
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 12h4l3-8 4 16 3-8h4"/>
-      </svg>
-      <span>Flow</span>
-    </a>
-  </nav>
-</div>
-
-<script type="module" src="static/app.js"></script>
+  <div id="app-status" class="visually-hidden" role="status" aria-live="polite"></div>
+  <script type="module" src="static/app.js"></script>
 </body>
 </html>

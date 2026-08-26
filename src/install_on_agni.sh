@@ -1,139 +1,132 @@
-#!/bin/bash
-# Run ON AGNI as root. Idempotent install of Fleet Hub v0.6.
-#
-# Usage:
-#   bash install_on_agni.sh                # SRC = directory this script lives in
-#   DEST=/some/where bash install_on_agni.sh
-#   ALLOW_NO_TOKEN=1 bash install_on_agni.sh   # dev escape hatch ONLY (server still fails closed)
+#!/usr/bin/env bash
+# Run explicitly on AGNI as root after a reviewed commit is authorized.
+# Installs an immutable release and atomically switches `current`; it never
+# deletes an existing release. This script is not invoked by tests or import.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="${DEST:-/root/agni/fleet_hub}"
+REPO_ROOT="$(cd "$SRC/.." && pwd)"
+APP_ROOT=/opt/dharma/fleet-hub
+RELEASE_ROOT="$APP_ROOT/releases"
+CURRENT_LINK="$APP_ROOT/current"
+PREVIOUS_LINK="$APP_ROOT/previous"
 ENV_FILE=/etc/dharma/fleet-hub.env
 UNIT_SRC="$SRC/systemd/fleet-hub.service"
 UNIT_DEST=/etc/systemd/system/fleet-hub.service
 PORT=8444
+RELEASE_ID="${RELEASE_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 
-if [[ ! -f "$SRC/server.py" ]]; then
-  echo "missing $SRC/server.py — run this script from inside the fleet-hub src tree" >&2
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "FAIL: installer must run as root on AGNI" >&2
+  exit 1
+fi
+if [[ ! "$RELEASE_ID" =~ ^[A-Za-z0-9._-]{8,80}$ ]]; then
+  echo "FAIL: RELEASE_ID must be 8-80 safe characters" >&2
+  exit 1
+fi
+if [[ ! -f "$SRC/server.py" || ! -f "$UNIT_SRC" || ! -f "$REPO_ROOT/pyproject.toml" || ! -f "$REPO_ROOT/uv.lock" ]]; then
+  echo "FAIL: run from a complete reviewed Fleet Hub repository" >&2
+  exit 1
+fi
+if ! command -v uv >/dev/null 2>&1 || ! command -v python3.12 >/dev/null 2>&1; then
+  echo "FAIL: uv and python3.12 are required to build the locked release environment" >&2
+  exit 1
+fi
+if [[ ! -f "$ENV_FILE" ]] || ! grep -Eq '^FLEET_HUB_TOKEN=[^[:space:]]' "$ENV_FILE"; then
+  echo "FAIL: $ENV_FILE must contain a non-empty FLEET_HUB_TOKEN" >&2
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Fail-closed token gate.
-# WHY: v0.4 shipped with no auth and v0.5 failed OPEN when FLEET_HUB_TOKEN was
-# unset. The v0.6 server hard-denies without a token, but we also refuse to
-# *install* without one so the failure is loud at deploy time, on this
-# terminal, instead of silent 403s on John's phone. ALLOW_NO_TOKEN=1 is a dev
-# escape hatch only — the server stays locked regardless.
-# ---------------------------------------------------------------------------
-if [[ "${ALLOW_NO_TOKEN:-0}" != "1" ]]; then
-  if [[ ! -f "$ENV_FILE" ]] || ! grep -Eq '^FLEET_HUB_TOKEN=[^[:space:]]' "$ENV_FILE"; then
-    cat >&2 <<EOF
-FAIL: $ENV_FILE missing or has no non-empty FLEET_HUB_TOKEN= line.
-
-Fix (as root on AGNI):
-  mkdir -p /etc/dharma
-  echo "FLEET_HUB_TOKEN=\$(openssl rand -hex 24)" >> $ENV_FILE
-  chmod 600 $ENV_FILE
-
-Then re-run this installer. (Set ALLOW_NO_TOKEN=1 to bypass for local dev
-only — the hub will stay LOCKED until a token exists.)
-EOF
-    exit 1
-  fi
-fi
-
-# ---- backup ----------------------------------------------------------------
-if [[ -d "$DEST" ]]; then
-  BACKUP="${DEST}.bak.$(date -u +%Y%m%dT%H%M%SZ)"
-  cp -a "$DEST" "$BACKUP"
-  echo "backed up to $BACKUP"
-fi
-
-# ---- whole-tree sync (no more silently-skipped assets) ---------------------
-# Guard --delete: refuse to sync into a populated directory that is not already
-# a fleet-hub install. A mis-set DEST (e.g. DEST=/ or a wrong path) must never
-# let rsync --delete wipe an unrelated tree.
-DEST_ABS="$(cd "$DEST" 2>/dev/null && pwd || echo "$DEST")"
-case "$DEST_ABS" in
-  ""|/|/root|/etc|/usr|/var|/home|/boot|/bin|/sbin|/lib*)
-    echo "FAIL: refusing to install into system path '$DEST_ABS'" >&2; exit 1 ;;
-esac
-if [[ -d "$DEST" ]] && [[ -n "$(ls -A "$DEST" 2>/dev/null)" ]] && [[ ! -f "$DEST/server.py" ]]; then
-  echo "FAIL: '$DEST' is non-empty but has no server.py — not a fleet-hub install." >&2
-  echo "      Refusing rsync --delete into it. Set DEST to the real install dir." >&2
+RELEASE_DIR="$RELEASE_ROOT/$RELEASE_ID"
+if [[ -e "$RELEASE_DIR" ]]; then
+  echo "FAIL: release already exists: $RELEASE_DIR" >&2
   exit 1
 fi
-mkdir -p "$DEST"
+
+if ! id -u fleet-hub >/dev/null 2>&1; then
+  useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin fleet-hub
+fi
+install -d -o root -g fleet-hub -m 0750 /etc/dharma "$APP_ROOT" "$RELEASE_ROOT"
+chown root:fleet-hub "$ENV_FILE"
+chmod 0640 "$ENV_FILE"
+install -d -o root -g fleet-hub -m 0750 "$RELEASE_DIR"
+
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a --delete --exclude .git --exclude tests --exclude __pycache__ "$SRC/" "$DEST/"
+  rsync -a --exclude .git --exclude tests --exclude __pycache__ --exclude '*.pyc' "$SRC/" "$RELEASE_DIR/"
 else
-  echo "rsync not found — falling back to cp -a (no --delete semantics)" >&2
-  cp -a "$SRC/." "$DEST/"
-  rm -rf "$DEST/tests" "$DEST/.git"
-  find "$DEST" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  cp -a "$SRC/." "$RELEASE_DIR/"
+  find "$RELEASE_DIR" -type f -name '*.pyc' -delete
 fi
 
-# ---- systemd unit ----------------------------------------------------------
-if [[ -f "$UNIT_SRC" ]]; then
-  cp "$UNIT_SRC" "$UNIT_DEST"
-  systemctl daemon-reload
+# Build this release's interpreter environment from the reviewed lock. The
+# service never depends on a mutable host-global site-packages directory.
+UV_PROJECT_ENVIRONMENT="$RELEASE_DIR/.venv" \
+  uv sync --project "$REPO_ROOT" --locked --no-dev
+
+chown -R root:fleet-hub "$RELEASE_DIR"
+find "$RELEASE_DIR" -type d -exec chmod 0750 {} +
+find "$RELEASE_DIR" -type f -exec chmod 0640 {} +
+find "$RELEASE_DIR/.venv/bin" -type f -exec chmod 0750 {} +
+chmod 0750 "$RELEASE_DIR/install_on_agni.sh"
+
+if [[ -L "$CURRENT_LINK" ]]; then
+  old_release="$(readlink -f "$CURRENT_LINK")"
+  case "$old_release" in
+    "$RELEASE_ROOT"/*) ln -sfn "$old_release" "$PREVIOUS_LINK" ;;
+    *) echo "FAIL: current link escapes release root" >&2; exit 1 ;;
+  esac
 fi
-systemctl enable --now fleet-hub.service
+ln -s "$RELEASE_DIR" "$APP_ROOT/current.next"
+mv -Tf "$APP_ROOT/current.next" "$CURRENT_LINK"
+
+install -o root -g root -m 0644 "$UNIT_SRC" "$UNIT_DEST"
+systemctl daemon-reload
+systemctl enable fleet-hub.service
 systemctl restart fleet-hub.service
-sleep 2
-systemctl is-active fleet-hub.service
 
-# ---- smoke tests -----------------------------------------------------------
-PASS=1
-
-# (a) /healthz must answer 200 (unauthenticated liveness probe)
-code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz" || echo 000)
-if [[ "$code" == "200" ]]; then
-  echo "PASS: /healthz -> 200"
-else
-  echo "FAIL: /healthz -> $code (expected 200)"
-  PASS=0
-fi
-
-# (b) /api/roster WITHOUT auth must be rejected. If it answers 200 the hub is
-# wide open to the internet — that is an install FAILURE, full stop.
-code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/roster" || echo 000)
-if [[ "$code" == "401" || "$code" == "403" ]]; then
-  echo "PASS: /api/roster unauthenticated -> $code (fail-closed)"
-elif [[ "$code" == "200" ]]; then
-  echo "FAIL: AUTH IS OPEN"
-  echo "FAIL: /api/roster answered 200 with no credentials — refusing to bless this install"
-  exit 1
-else
-  echo "FAIL: /api/roster unauthenticated -> $code (expected 401/403)"
-  PASS=0
-fi
-
-# (c) With the real token, /api/roster must answer 200.
-if [[ -r "$ENV_FILE" ]]; then
-  TOKEN=$(grep -E '^FLEET_HUB_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)
-  if [[ -n "$TOKEN" ]]; then
-    code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/roster" || echo 000)
-    if [[ "$code" == "200" ]]; then
-      echo "PASS: /api/roster with bearer token -> 200"
-    else
-      echo "FAIL: /api/roster with bearer token -> $code (expected 200)"
-      PASS=0
-    fi
-  else
-    echo "SKIP: token check ($ENV_FILE has empty FLEET_HUB_TOKEN)"
+for _attempt in 1 2 3 4 5; do
+  if systemctl is-active --quiet fleet-hub.service; then
+    break
   fi
-else
-  echo "SKIP: token check ($ENV_FILE not readable)"
-fi
+  sleep 1
+done
+systemctl is-active --quiet fleet-hub.service
 
-# ---- summary ---------------------------------------------------------------
-echo "----------------------------------------"
-if [[ "$PASS" == "1" ]]; then
-  echo "INSTALL PASS  dest=$DEST  port=$PORT"
-else
-  echo "INSTALL FAIL  dest=$DEST  port=$PORT — see FAIL lines above"
+health_code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz" || true)"
+anon_code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/roster" || true)"
+if [[ "$health_code" != 200 ]]; then
+  echo "FAIL: /healthz -> $health_code" >&2
   exit 1
 fi
+if [[ "$anon_code" != 401 && "$anon_code" != 403 ]]; then
+  echo "FAIL: unauthenticated /api/roster -> $anon_code" >&2
+  exit 1
+fi
+
+# Read the credential without printing it. Keep it out of curl's argv as well:
+# process listings are not a credential-safe transport even on loopback.
+fleet_token="$(grep -E '^FLEET_HUB_TOKEN=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+if [[ ! "$fleet_token" =~ ^[A-Za-z0-9._~+/=-]{20,512}$ ]]; then
+  unset fleet_token
+  echo "FAIL: FLEET_HUB_TOKEN must be a 20-512 character opaque token" >&2
+  exit 1
+fi
+curl_header_file="$(mktemp /run/fleet-hub-curl-header.XXXXXX)"
+chmod 0600 "$curl_header_file"
+cleanup_curl_header() {
+  unset fleet_token
+  rm -f -- "$curl_header_file"
+}
+trap cleanup_curl_header EXIT
+printf 'Authorization: Bearer %s\n' "$fleet_token" >"$curl_header_file"
+unset fleet_token
+auth_code="$(curl -sS -o /dev/null -w '%{http_code}' -H "@$curl_header_file" "http://127.0.0.1:$PORT/api/roster" || true)"
+rm -f -- "$curl_header_file"
+trap - EXIT
+if [[ "$auth_code" != 200 ]]; then
+  echo "FAIL: authenticated /api/roster -> $auth_code" >&2
+  exit 1
+fi
+
+echo "INSTALL PASS release=$RELEASE_ID health=$health_code auth_gate=$anon_code authenticated=$auth_code"
+echo "Rollback pointer: $PREVIOUS_LINK"

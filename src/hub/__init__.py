@@ -1,3 +1,4 @@
-"""Fleet Hub core modules — auth, state, presence, NATS I/O, monitor proxy."""
+"""Fleet Hub core modules for the evidence-aware v1 candidate."""
 
-VERSION = "0.6.0"
+VERSION = "1.0.0-dev"
+BUILD_STATUS = "candidate-unqualified"

@@ -1,69 +1,83 @@
-# Fleet Hub v0.6
+# Fleet Hub v1 candidate runtime
 
-Phone-first operator console for the three-VPS fleet.
+This tree contains the FastAPI service and five-tab phone PWA. The application
+version is `1.0.0-dev` and its build status is `candidate-unqualified` until the
+owner adapters, live canary, device matrix, and deployment gate are complete.
 
-Live URL after install: `https://157.245.193.15/fleet/`
+## Runtime invariants
 
-## What shipped vs v0.5
-
-- **Fail-closed auth** — no `FLEET_HUB_TOKEN` on the host means the hub is
-  LOCKED (v0.5 failed open). Bearer header or HMAC session cookie only; no
-  query-param tokens anywhere.
-- **Two-signal presence** — `last_heard` (agent spoke) vs `last_addressed`
-  (traffic sent to it), with honest freshness buckets. No more hardcoded
-  `live`.
-- **JetStream replay** — chat history and presence survive restarts (48h
-  window by default).
-- **Truth-amnesty roster v2** — only provably-live agents hold `seat:
-  "active"`; the rest are archived until they re-earn a seat with a
-  heartbeat.
-- **Single multiplexed SSE stream** with `Last-Event-ID` resume, msg-id echo
-  suppression, honest ack tiers (`PUBLISH_ACCEPTED` is never "delivered").
-- **PWA** — installable, standalone, manifest + icons.
+- Auth fails closed when `FLEET_HUB_TOKEN` is absent.
+- A successful login creates a random, server-side, expiring and revocable
+  session. The browser receives only an HttpOnly cookie plus an in-memory CSRF
+  token.
+- Cookie-authenticated mutations require the session-bound CSRF token and
+  same-origin request metadata. Bearer authentication is non-ambient and is
+  retained for scoped automation compatibility.
+- Chat ingress uses stable identifiers and a caller-bound, process-local
+  idempotency registry plus the broker's finite dedupe window. Broker acceptance
+  is labeled `PUBLISH_ACCEPTED`; a duplicate acknowledgement is labeled
+  separately and neither is called delivery, processing, reply, or effect.
+- The multiplexed SSE ring is process-local. An unprovable resume gap produces
+  `reset_required`, and clients refetch versioned reads.
+- Mission Control data is validated against a bounded, redacted wire contract.
+  The default provider is unavailable and exposes no commands.
+- Presence signals retain source, observation time, and TTL. Sender values from
+  untrusted payloads remain reported identity, not authenticated identity.
 
 ## Layout
 
-```
+```text
 src/
-  server.py                  # thin FastAPI wiring
-  hub/                       # auth, state, presence, natsio, monitor modules
+  server.py
+  hub/
+    auth.py                 # random expiring/revocable sessions and CSRF
+    mission_contract.py     # bounded owner-wire DTOs and reconciliation enum
+    mission_provider.py     # read-only configured-mission adapter boundary
+    needs_john.py           # pure deterministic derived projection
+    natsio.py state.py presence.py monitor.py
   static/
-    index.html style.css app.js       # zero-build frontend
-    manifest.webmanifest icons/*.png  # PWA assets
-  roster.json                # fleet_roster.v2 (seat: active|archived)
-  vision.json                # fleet_vision.v1 (ventures, served at /api/vision)
+    index.html style.css app.js sw.js
+    manifest.webmanifest icons/
+  roster.json vision.json
   systemd/fleet-hub.service
   install_on_agni.sh
-  tests/                     # dev-only; excluded from deploy sync
+  tests/
 ```
 
-## Environment (read from `/etc/dharma/fleet-hub.env` via systemd)
+## Environment
 
-| Var | Default | Notes |
-| --- | --- | --- |
-| `FLEET_HUB_TOKEN` | *(empty)* | **Mandatory.** Empty ⇒ hub LOCKED, never open. |
-| `FLEET_HUB_ROOT` | dir of server.py | Data root for roster/vision. |
-| `FLEET_HUB_ROSTER` | `$ROOT/roster.json` | |
-| `FLEET_HUB_VISION` | `$ROOT/vision.json` | |
-| `FLEET_HUB_INSECURE_COOKIE` | *(unset)* | `1` ⇒ omit `Secure` flag (local dev only). |
-| `NATS_URL` | `nats://127.0.0.1:4222` | |
-| `NATS_USER` / `NATS_PASS` | *(unset)* | `NATS_PASSWORD` accepted as fallback. |
-| `NATS_STREAM` | `DHARMA_A2A` | |
-| `NATS_CHAT_SUBJECT` | `dharma.fleet.chat` | |
-| `NATS_MONITOR_URL` | `http://127.0.0.1:8222` | varz proxy for broker health. |
-| `FLEET_LIVE_WINDOW_S` | `300` | fresh bucket. |
-| `FLEET_RECENT_WINDOW_S` | `7200` | recent bucket. |
-| `FLEET_REPLAY_HOURS` | `48` | JetStream replay window. |
-| `FLEET_REPLAY_STREAMS` | `DHARMA_A2A` | comma-separated. |
+| Variable | Default | Contract |
+|---|---|---|
+| `FLEET_HUB_TOKEN` | empty | Mandatory; empty keeps application APIs locked |
+| `FLEET_HUB_ROOT` | directory containing `server.py` | Read-only runtime assets |
+| `FLEET_HUB_ROSTER` | `$FLEET_HUB_ROOT/roster.json` | Canonical roster projection input |
+| `FLEET_HUB_VISION` | `$FLEET_HUB_ROOT/vision.json` | Legacy read projection input |
+| `FLEET_HUB_INSECURE_COOKIE` | unset | `1` only for local HTTP development |
+| `FLEET_HUB_BASE_PATH` | `/fleet/` | Service-worker allowance; set `/` only for root-mounted local development |
+| `FLEET_HUB_MAX_BODY_BYTES` | bounded server default | Pre-parse HTTP request-body ceiling; proxy ceiling must be no larger |
+| `NATS_URL` | `nats://127.0.0.1:4222` | Governed existing bus; no second bus |
+| `NATS_USER` / `NATS_PASS` | unset | Credentials remain host-side only |
+| `NATS_STREAM` | `DHARMA_A2A` | Compatibility stream configuration |
+| `NATS_CHAT_SUBJECT` | `dharma.fleet.chat` | Group transcript, not implicit responder fan-out |
+| `NATS_MONITOR_URL` | `http://127.0.0.1:8222` | Private aggregate source; never exposed raw |
+| `FLEET_LIVE_WINDOW_S` | `300` | Fresh presence TTL window |
+| `FLEET_RECENT_WINDOW_S` | `7200` | Recent presence window |
+| `FLEET_REPLAY_HOURS` | `48` | Bounded startup compatibility replay |
 
-## Install on AGNI (paths unchanged from v0.5)
+Exact versioned routes and capabilities are advertised by
+`GET /api/v1/bootstrap`. A missing owner adapter is a typed unavailable state,
+not an empty task list.
 
-1. Copy this tree to AGNI (e.g. `/root/agni/fleet_hub_incoming`)
-2. Write `/etc/dharma/fleet-hub.env` with `FLEET_HUB_TOKEN=...` (mode 600) —
-   the installer **exits 1** without it
-3. `bash /root/agni/fleet_hub_incoming/install_on_agni.sh` — syncs the whole
-   tree to `/root/agni/fleet_hub`, installs the unit, runs smoke tests
-   (healthz 200, unauthenticated `/api/roster` must be rejected, bearer 200)
-4. Confirm Caddy still reverse-proxies `/fleet/*` → `127.0.0.1:8444`
+Mission `source_version` values are Fleet Hub projection digests, not an atomic
+TaskBoard expected-version primitive. They support bounded reads and client
+invalidation only.
 
-Full phone-verifiable checklist: `DEPLOY_AGNI.md` at the repo root.
+## Install boundary
+
+`install_on_agni.sh` is an explicit operator tool. It installs a new immutable
+release under `/opt/dharma/fleet-hub/releases`, atomically switches `current`,
+and preserves a `previous` rollback pointer. The service runs as the
+unprivileged `fleet-hub` user and binds loopback behind the existing reverse
+proxy. Tests and imports never invoke the installer.
+
+See `../DEPLOY_AGNI.md`. Its presence is not deploy authorization.

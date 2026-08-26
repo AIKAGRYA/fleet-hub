@@ -1,10 +1,8 @@
 """Fleet Hub v0.6 test fixtures.
 
 Written against the binding build contract (CONTRACT.md): hub/ module
-interfaces, roster.json v2 shape, env-at-import server config. The backend
-may land after these tests are written — heavy imports (server) happen inside
-fixtures, and each test module guards its hub.* imports with
-pytest.importorskip so collection never crashes on an absent backend.
+interfaces, roster.json v2 shape, and env-at-import server config. Missing
+backend dependencies are collection failures, never silent test skips.
 
 Run from src/:  python3 -m pytest tests/ -q
 """
@@ -117,7 +115,7 @@ def roster_indexes(roster, roster_index_by_subject, roster_index_by_name):
     """The indexes bundle handle_msg receives. Contract names the argument
     `roster_indexes` without pinning its shape; prefer a builder exported by
     hub.natsio if one exists, else a plain dict of both indexes."""
-    natsio = pytest.importorskip("hub.natsio")
+    from hub import natsio
     for name in ("build_indexes", "roster_indexes", "make_indexes", "index_roster"):
         fn = getattr(natsio, name, None)
         if callable(fn):
@@ -152,9 +150,10 @@ class FakeMsg:
 
 
 class FakePubAck:
-    def __init__(self, seq: int = 7):
+    def __init__(self, seq: int = 7, *, duplicate: bool = False):
         self.seq = seq
         self.stream = "DHARMA_A2A"
+        self.duplicate = duplicate
 
 
 class FakePullSub:
@@ -176,17 +175,21 @@ class FakeJS:
     """JetStream fake: publish records calls and acks seq 7 (or raises)."""
 
     def __init__(self, publish_exc: Exception | None = None,
-                 last_msgs: dict | None = None, batches=None):
+                 last_msgs: dict | None = None, batches=None,
+                 duplicate: bool = False):
         self.published: list[tuple[str, bytes]] = []
+        self.published_headers: list[dict[str, str]] = []
         self.publish_exc = publish_exc
         self.last_msgs = last_msgs or {}
         self._batches = batches
+        self.duplicate = duplicate
 
-    async def publish(self, subject: str, payload: bytes, timeout=None):
+    async def publish(self, subject: str, payload: bytes, headers=None, timeout=None):
         if self.publish_exc is not None:
             raise self.publish_exc
         self.published.append((subject, payload))
-        return FakePubAck(7)
+        self.published_headers.append(dict(headers or {}))
+        return FakePubAck(7, duplicate=self.duplicate)
 
     async def get_last_msg(self, stream: str, subject: str):
         try:

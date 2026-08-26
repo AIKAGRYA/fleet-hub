@@ -1,121 +1,99 @@
-# Deploy Fleet Hub v0.6 on AGNI
+# Fleet Hub candidate — AGNI qualification and deployment
 
-Phone-runnable checklist. Every step verifiable from iPhone + one SSH
-session (Termius/Blink) to AGNI (`157.245.193.15`). Run all commands as root.
+This is a rollback-ready procedure, not standing authorization. Use it only for
+a named, reviewed commit after the operator separately approves a production
+release. Code review or a green CI run does not itself authorize installation,
+service restart, ACL changes, or a live canary.
 
-## 1. Mint the token (once)
+## Preconditions
 
-```bash
-mkdir -p /etc/dharma
-echo "FLEET_HUB_TOKEN=$(openssl rand -hex 24)" >> /etc/dharma/fleet-hub.env
-chmod 600 /etc/dharma/fleet-hub.env
-cat /etc/dharma/fleet-hub.env   # copy the token into your password manager
-```
+- The exact commit is reviewed in `AIKAGRYA/fleet-hub` and CI is green.
+- `BUILD_RECEIPT.md` identifies the commit, artifact digest, tests, and known
+  unavailable capabilities.
+- AGNI has Python 3.12 and `uv`; the installer builds each release environment
+  from the reviewed `uv.lock`.
+- The reverse proxy rejects request bodies above Fleet Hub's configured
+  `FLEET_HUB_MAX_BODY_BYTES`; the application limit is defense in depth, not a
+  substitute for an edge limit.
+- `/etc/dharma/fleet-hub.env` exists with a non-empty token and any approved
+  NATS credentials. It is root-owned, group `fleet-hub`, mode `0640`, and has
+  never been copied into the release tree or a command log.
+- Caddy continues to terminate TLS and reverse-proxy `/fleet/*` to loopback
+  `127.0.0.1:8444`. NATS monitoring port 8222 and owner databases remain private.
+- A release ID and expected source digest are recorded before transfer.
 
-## 2. Get the tree onto AGNI
+The v1 owner adapter is unavailable unless a separately reviewed authenticated
+transport is configured. Do not work around that gate by copying or opening an
+owner SQLite database on AGNI.
 
-From the repo (branch `claude/fleet-hub-operator-34yfbf`), land `src/` at
-`/root/agni/fleet_hub_incoming` — git pull on AGNI, or tarball via
-Meghadharma, either works:
+## Stage and verify
 
-```bash
-git clone --depth 1 -b claude/fleet-hub-operator-34yfbf <repo-url> /tmp/fh \
-  && rm -rf /root/agni/fleet_hub_incoming \
-  && cp -a /tmp/fh/src /root/agni/fleet_hub_incoming
-```
+Transfer the complete reviewed repository (including `pyproject.toml`, `uv.lock`,
+and `src/`) to a new staging directory. Do not overwrite the current release.
+On AGNI, compare the staged tree or archive digest with the digest in the review
+receipt before running any installer.
 
-## 3. Run the installer
-
-```bash
-bash /root/agni/fleet_hub_incoming/install_on_agni.sh
-```
-
-Must end with `INSTALL PASS`. It backs up the old tree
-(`/root/agni/fleet_hub.bak.<UTC timestamp>`), syncs the whole tree, installs
-the unit, and smoke-tests: `/healthz` 200, unauthenticated `/api/roster`
-rejected (**`FAIL: AUTH IS OPEN` aborts the install**), bearer-token roster
-200. If it exits 1 on the token gate, do step 1 first.
-
-## 4. Caddy — no change needed
-
-Confirm the existing block still reads:
-
-```
-handle_path /fleet/* {
-    reverse_proxy 127.0.0.1:8444
-}
-```
-
-## 5. iPhone verify
-
-1. Open `https://157.245.193.15/fleet/` — you get the **login gate** (not the
-   app: proves fail-closed).
-2. Paste the token, log in — the app loads.
-3. Talk tab shows **chat history from before this deploy** — that history
-   survived the restart, proving JetStream replay works.
-
-## 6. Restart-under-6s test
+The installer rejects unsafe release IDs and existing release directories. A
+normal authorized invocation is:
 
 ```bash
-time systemctl restart fleet-hub.service
+RELEASE_ID=<reviewed-commit-or-release-id> \
+  bash <verified-staging-directory>/src/install_on_agni.sh
 ```
 
-Total under ~6s (`TimeoutStopSec=5` kills hung SSE connections). Phone
-reconnects on its own.
+It performs these bounded mutations:
 
-## 7. Add to Home Screen
+1. ensures the unprivileged `fleet-hub` service identity exists;
+2. copies the staged tree into a new immutable directory under
+   `/opt/dharma/fleet-hub/releases/`;
+3. preserves the prior `current` target as the `previous` symlink;
+4. atomically switches `current` to the new release;
+5. installs the hardened systemd unit and restarts only `fleet-hub.service`;
+6. checks service activity, health, the unauthenticated gate, and one
+   authenticated loopback read without printing the credential.
 
-Safari → Share → Add to Home Screen. Expect the gold hanko-seal icon, name
-"Fleet", standalone launch (no Safari chrome), dark `#0d0e14` splash.
+It never deletes an existing release and never runs from tests or application
+startup. The systemd unit invokes the selected release's `.venv`; it does not
+use mutable host-global site packages.
 
-## 8. v0.4 alias check
+## Post-install qualification
 
-```bash
-curl -s http://127.0.0.1:8444/health
-# {"status":"ok","version":"0.6.0","wayfinder":false}
-```
+Record each result against the exact release ID:
 
-Old pollers keep working.
+- `/healthz` reports the expected version and `candidate-unqualified` build
+  status until all promotion gates are actually complete.
+- An unauthenticated application read is rejected; login creates an HttpOnly
+  session; logout revokes it.
+- The five destinations appear in order at 390x844: Helm, Chat, Board, Trace,
+  Roster. Needs John is a rail/badge, not a sixth tab.
+- Mission/Board shows `UNAVAILABLE` when the owner adapter is absent; it never
+  paints a reassuring empty board.
+- A staged chat test reports only the transport tier evidenced. Do not call a
+  broker acceptance delivered, handled, replied, or effective.
+- Background/foreground, offline shell, reconnect/reset/refetch, standalone
+  mode, keyboard open, 320px reflow, reduced motion, and VoiceOver are checked
+  on the approved device matrix.
+- Service logs contain no token, cookie, NATS credential, raw exception, or
+  unredacted payload.
+
+A real fleet DM or group responder test is a separate approved canary. Never use
+the qualification checklist as implicit permission to publish one.
 
 ## Rollback
 
-```bash
-ls -d /root/agni/fleet_hub.bak.*        # pick the timestamp you want
-systemctl stop fleet-hub
-rm -rf /root/agni/fleet_hub
-cp -a /root/agni/fleet_hub.bak.<TS> /root/agni/fleet_hub
-systemctl start fleet-hub
-```
+The installer preserves `/opt/dharma/fleet-hub/previous`. If the new release
+fails qualification, atomically point `current` back to that already verified
+release, restart only `fleet-hub.service`, and repeat the health/auth smoke tests.
+Do not delete the failed or previous release during the incident; preserve both
+for comparison and receipt review.
 
-(The old unit file, if you need it, is inside the backup at
-`systemd/fleet-hub.service` — `cp` it to `/etc/systemd/system/` and
-`systemctl daemon-reload`.)
+After rollback, record the failed release ID, observed symptom, rollback target,
+service timestamps, and smoke-test results. A rollback receipt proves the switch
+and checks named in it; it does not prove fleet-wide semantic health.
 
-## Key rotation (truth amnesty)
+## Promotion
 
-Keys are currently strewn across the 3 VPSes. Consolidate:
-
-1. **Inventory** — on each of AGNI, Meghadharma (`178.128.87.170`),
-   Rushabdev (`167.172.95.184`):
-
-   ```bash
-   grep -rilE 'nats|token|pass|secret|key' /root/*.env /root/.env* /etc/dharma/ 2>/dev/null
-   grep -rl 'nats://' /etc/systemd/system/ 2>/dev/null
-   ```
-
-   List every file holding NATS creds or hub tokens before touching anything.
-2. **Rotate NATS credentials** — set a new user/pass in the AGNI
-   `nats-server` config, restart the broker, then update the two remaining
-   live consumers (Meghadharma + Rushabdev Hermes bridges) in the same
-   sitting. Anything you don't update goes dark — that's the amnesty working.
-3. **Rotate `FLEET_HUB_TOKEN`** — repeat step 1's mint (replace the line, not
-   append), `systemctl restart fleet-hub`, re-login on the phone.
-4. **One vault file per host** — the `/etc/dharma/` pattern: each service
-   reads one env file, `chmod 600`, root-owned, never in git. Delete stray
-   copies found in the inventory after their service is migrated.
-5. **Revoke archived-seat creds** — the 7 archived seats
-   (`dharma-command-node`, `fleet-state-projector`, `fable_claude_code`,
-   `fable_5_cursor`, `devin-roaming-2987d222`, `perplexity-computer`,
-   `fable_composer`) must not hold working NATS credentials. Old creds die
-   with the rotation in step 2 — just don't hand the new ones to any archived
-   seat. A seat re-earns creds by shipping a live heartbeat first.
+Removing `candidate-unqualified` requires evidence for the owner-backed Mission
+projection, atomic command semantics if enabled, least-privilege live routing,
+approved semantic canary, real-device/accessibility matrix, load bounds, upgrade
+behavior, and rollback rehearsal. Production presence alone is not that proof.

@@ -1,0 +1,26 @@
+[project]
+name = "dharma-fleet-hub"
+version = "1.0.0.dev0"
+description = "Phone-first, evidence-aware operator projection for the Dharma fleet"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "httpx>=0.27,<1",
+  "nats-py>=2.9,<3",
+  "pydantic>=2.9,<3",
+  "uvicorn>=0.30,<1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.24,<2",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["src/tests"]
+
+[tool.uv]
+package = false

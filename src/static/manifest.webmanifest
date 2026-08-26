@@ -1,7 +1,8 @@
 {
   "name": "Fleet Hub",
   "short_name": "Fleet",
-  "start_url": "/fleet/",
+  "id": "/fleet/",
+  "start_url": "/fleet/#/helm",
   "scope": "/fleet/",
   "display": "standalone",
   "background_color": "#0d0e14",
@@ -10,12 +11,14 @@
     {
       "src": "/fleet/static/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/fleet/static/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
