@@ -31,10 +31,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from hub import BUILD_STATUS, VERSION, auth, monitor, natsio, presence
 from hub.mission_provider import (
     DEFAULT_MISSION_PROVIDER,
+    MAX_OWNER_RESPONSE_BYTES,
     MissionCatalog,
     MissionProvider,
     MissionSnapshotProjection,
-    UnavailableMissionProvider,
+    mission_provider_from_settings,
 )
 from hub.needs_john import derive_needs_john
 from hub.state import (
@@ -83,6 +84,18 @@ MAX_REQUEST_BODY_BYTES = _env_int(
 MISSION_PROVIDER_TIMEOUT_S = _env_int(
     "FLEET_HUB_MISSION_PROVIDER_TIMEOUT_MS", 2_000, minimum=100, maximum=30_000
 ) / 1000
+MISSION_CONTROL_URL = (
+    os.environ.get("FLEET_HUB_MISSION_CONTROL_URL") or ""
+).strip()
+MISSION_CONTROL_TOKEN = (
+    os.environ.get("FLEET_HUB_MISSION_CONTROL_TOKEN") or ""
+).strip()
+MISSION_CONTROL_MAX_RESPONSE_BYTES = _env_int(
+    "FLEET_HUB_MISSION_CONTROL_MAX_RESPONSE_BYTES",
+    MAX_OWNER_RESPONSE_BYTES,
+    minimum=16 * 1024,
+    maximum=8 * 1024 * 1024,
+)
 BROKER_TIMEOUT_S = _env_int(
     "FLEET_HUB_BROKER_TIMEOUT_MS", 2_500, minimum=100, maximum=30_000
 ) / 1000
@@ -97,6 +110,7 @@ NATS_USER = os.environ.get("NATS_USER") or None
 NATS_PASS = os.environ.get("NATS_PASS") or os.environ.get("NATS_PASSWORD") or None
 STREAM = os.environ.get("NATS_STREAM", "DHARMA_A2A")
 CHAT_SUBJECT = os.environ.get("NATS_CHAT_SUBJECT", "dharma.fleet.chat")
+FLEET_SENDER_UID = os.environ.get("FLEET_HUB_AGENT_UID", "operator").strip()
 MONITOR_URL = os.environ.get("NATS_MONITOR_URL", "http://127.0.0.1:8222")
 LIVE_WINDOW_S = _env_int("FLEET_LIVE_WINDOW_S", 300, minimum=10, maximum=86_400)
 RECENT_WINDOW_S = _env_int(
@@ -124,6 +138,22 @@ _deployment_namespace = os.environ.get(
 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", _deployment_namespace):
     _deployment_namespace = "agni-candidate"
 DEDUPE_NAMESPACE = f"fleet-hub-v1:{_deployment_namespace}"
+_EVIDENCE_MODES = frozenset(
+    {"fixture", "local_integration", "live_read", "live_canary", "owner"}
+)
+EVIDENCE_MODE = os.environ.get(
+    "FLEET_HUB_EVIDENCE_MODE", "local_integration"
+).strip()
+if EVIDENCE_MODE not in _EVIDENCE_MODES:
+    EVIDENCE_MODE = "local_integration"
+SOURCE_INSTANCE = os.environ.get(
+    "FLEET_HUB_SOURCE_INSTANCE", "fleet-hub-candidate"
+).strip()[:128]
+if not SOURCE_INSTANCE or any(ord(char) < 0x20 for char in SOURCE_INSTANCE):
+    SOURCE_INSTANCE = "fleet-hub-candidate"
+GENERATED_BY_FIXTURE = os.environ.get(
+    "FLEET_HUB_GENERATED_BY_FIXTURE", ""
+).strip().casefold() in {"1", "true", "yes", "on"}
 
 CFG = SimpleNamespace(
     url=NATS_URL,
@@ -131,6 +161,7 @@ CFG = SimpleNamespace(
     password=NATS_PASS,
     stream=STREAM,
     chat_subject=CHAT_SUBJECT,
+    fleet_sender_uid=FLEET_SENDER_UID,
     monitor_url=MONITOR_URL,
     live_window_s=LIVE_WINDOW_S,
     recent_window_s=RECENT_WINDOW_S,
@@ -281,17 +312,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dharma Fleet Hub", version=VERSION, lifespan=lifespan)
-app.state.mission_provider = (
-    UnavailableMissionProvider(MISSION_IDS) if MISSION_IDS else DEFAULT_MISSION_PROVIDER
+app.state.mission_provider = mission_provider_from_settings(
+    owner_base_url=MISSION_CONTROL_URL,
+    bearer_token=MISSION_CONTROL_TOKEN,
+    mission_ids=MISSION_IDS,
+    timeout_s=MISSION_PROVIDER_TIMEOUT_S,
+    max_response_bytes=MISSION_CONTROL_MAX_RESPONSE_BYTES,
 )
 app.state.sessions = SESSIONS
 # Provenance is explicit so a fixture-backed browser build cannot be mistaken
 # for production evidence.  A production operator may replace these values in
 # its separately authorized adapter/bootstrap wiring; repository-local runs are
 # local integration by default.
-app.state.evidence_mode = "local_integration"
-app.state.source_instance = "fleet-hub-candidate"
-app.state.generated_by_fixture = False
+app.state.evidence_mode = EVIDENCE_MODE
+app.state.source_instance = SOURCE_INSTANCE
+app.state.generated_by_fixture = GENERATED_BY_FIXTURE
 
 
 # --- HTTP safety boundary ---------------------------------------------------
@@ -1654,7 +1689,10 @@ async def api_v1_chat_intent(body: ChatIntent, request: Request):
     deterministic_error = result.get("error")
     if deterministic_error in {
         "ambiguous_recipient",
+        "packet_id_invalid",
         "recipient_archived",
+        "recipient_inbox_unratified",
+        "sender_identity_invalid",
         "unknown_recipient",
     }:
         return _error(

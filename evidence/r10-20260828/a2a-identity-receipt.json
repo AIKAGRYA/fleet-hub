@@ -1,0 +1,41 @@
+{
+  "schema": "fleet_hub.a2a_identity_evidence.v1",
+  "observed_at": "2026-08-28T05:11:59Z",
+  "claims": [
+    {
+      "roster_uid": "setu_sab_agni",
+      "host": "root@157.245.193.15",
+      "hostname": "agni-openclaw",
+      "source_path": "/root/.dharma/a2a/cards/setu-sab-agni.json",
+      "source_sha256": "a900762f36e578a95cc9d1a3820219154fb3c2dd09bd578fda678dc071891b1e",
+      "agent_uid": "setu_sab_agni",
+      "route": "agent-inbox",
+      "substrate": "NATSSubstrate",
+      "subject": "dharma.agent.setu_sab_agni.inbox",
+      "ack_subject": "dharma.agent.setu_sab_agni.inbox.ack.{packet_id}",
+      "reply_subject": "dharma.agent.setu_sab_agni.inbox.reply.{packet_id}",
+      "proves_handler_liveness": false,
+      "proves_semantic_effect": false
+    },
+    {
+      "roster_uid": "fugu_ultra",
+      "host": "root@178.128.87.170",
+      "hostname": "meghadharma-cloud",
+      "source_path": "/root/.dharma/a2a/cards/fugu-ultra.json",
+      "source_sha256": "26c3529eac53d9d733641b784188027f75c52bf67035216f967f53dcb18aa786",
+      "agent_uid": "fugu_ultra",
+      "route": "agent-inbox",
+      "substrate": "NATSSubstrate",
+      "subject": "dharma.agent.fugu_ultra.inbox",
+      "ack_subject": "dharma.agent.fugu_ultra.inbox.ack.{packet_id}",
+      "reply_subject": "dharma.agent.fugu_ultra.inbox.reply.{packet_id}",
+      "proves_handler_liveness": false,
+      "proves_semantic_effect": false
+    }
+  ],
+  "unknowns": [
+    "No live A2ACard ratifies dharma.agent.agni.inbox.",
+    "No live A2ACard ratifies dharma.agent.meghadharma-hermes.inbox.",
+    "A card route does not prove an active subscriber, handler acknowledgement, executor liveness, or external effect."
+  ]
+}

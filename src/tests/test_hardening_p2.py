@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from hub import auth, natsio
 from hub import state as state_mod
-from hub.mission_contract import AUTHORITY, REDACTED, validate_owner_snapshot
+from hub.mission_contract import REDACTED, validate_owner_snapshot
 from hub.mission_provider import (
     MissionCatalog,
     MissionProvider,
@@ -271,6 +271,36 @@ def test_v1_unknown_recipient_is_a_deterministic_422(configured):
     assert response.json()["error"]["code"] == "unknown_recipient"
     assert response.json()["accepted"] is False
     assert server.STATE.js.published == []
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "packet_id_invalid",
+        "recipient_inbox_unratified",
+        "sender_identity_invalid",
+    ],
+)
+def test_v1_invalid_dm_addressing_is_a_deterministic_422(
+    configured, monkeypatch, error_code
+):
+    client, server = configured
+    _login(client)
+
+    async def reject_address(*args, **kwargs):
+        del args, kwargs
+        return {"ok": False, "accepted": False, "error": error_code}
+
+    monkeypatch.setattr(server.natsio, "send", reject_address)
+    response = client.post(
+        "/api/v1/intents/chat",
+        json={"text": "hello", "to": "hermes"},
+        headers={"Idempotency-Key": f"invalid-address-{error_code}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == error_code
+    assert response.json()["accepted"] is False
 
 
 def test_bearer_authenticated_logout_also_revokes_present_cookie(configured):

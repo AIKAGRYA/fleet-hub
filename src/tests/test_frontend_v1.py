@@ -96,6 +96,21 @@ def test_chat_identity_styling_requires_a_server_derived_claim() -> None:
     assert "optimisticOperatorMessages.add(message)" in APP
 
 
+def test_contact_receipts_and_causal_axes_survive_phone_rendering() -> None:
+    render = APP[APP.index("function renderMessage"):APP.index("function feedController")]
+    trace = APP[APP.index("function pushTrace"):APP.index("function mergePresence")]
+    trace_view = APP[APP.index("function receiptRows"):APP.index("function viewRoster")]
+    assert "message.tier || message.contact_tier || message.contact_evidence_tier" in render
+    assert "executor liveness and effect unproven" in APP
+    assert "message.domain_receipt_observed && message.domain_receipt" in render
+    assert "original effect unproven" in render
+    assert "message.tier !== 'DOMAIN_RECEIPTED'" in APP
+    assert "message.tier === 'HANDLER_ACKED'" in APP
+    for axis in ("correlation_id", "causation_id", "trace_id"):
+        assert f"frame.{axis}" in trace
+        assert f"frame.{axis}" in trace_view
+
+
 def test_owner_reads_are_fenced_and_paginated_without_completeness_overclaim() -> None:
     assert "snapshotRevision" in APP
     assert "invalidateSnapshots" in APP

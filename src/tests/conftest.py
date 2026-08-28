@@ -41,8 +41,8 @@ def frozen_now() -> float:
 def roster() -> dict:
     """Minimal 3-seat roster in fleet_roster.v2 shape.
 
-    - agni-hermes: active, plain a2a subject
-    - meghadharma-hermes: active, reply-style subject
+    - agni-hermes: active, owner-card-shaped canonical inbox plus legacy subject
+    - meghadharma-hermes: active, legacy observation subject only
     - fable_composer: archived seat
     """
     return {
@@ -54,6 +54,11 @@ def roster() -> dict:
             "agni-hermes": {
                 "callsign": "hermes",
                 "display_name": "AGNI Hermes",
+                "a2a_uid": "hermes-m5",
+                "inbox_subject": "dharma.agent.hermes-m5.inbox",
+                "inbox_authority": "A2ACard",
+                "inbox_card_sha256": "a" * 64,
+                "inbox_evidence": "test-fixture://owner-card/hermes-m5",
                 "subject": "dharma.a2a.hermes",
                 "host": "AGNI VPS 157.245.193.15",
                 "tailscale": "100.79.111.89",

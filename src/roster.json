@@ -1,6 +1,6 @@
 {
   "schema": "fleet_roster.v2",
-  "updated": "2026-08-14",
+  "updated": "2026-08-28",
   "amnesty": "truth-amnesty-2026-08-14",
   "agents": {
     "agni-hermes": {
@@ -24,6 +24,29 @@
       ],
       "seat": "active",
       "bio": "Infrastructure anchor on AGNI VPS. Runs the canonical NATS/JetStream hub, semantic A2A bridge, and fleet coordination. First responder for infrastructure issues."
+    },
+    "setu_sab_agni": {
+      "callsign": "setu-sab-agni",
+      "display_name": "Setu SAB AGNI",
+      "a2a_uid": "setu_sab_agni",
+      "inbox_subject": "dharma.agent.setu_sab_agni.inbox",
+      "inbox_authority": "A2ACard",
+      "inbox_card_sha256": "a900762f36e578a95cc9d1a3820219154fb3c2dd09bd578fda678dc071891b1e",
+      "inbox_evidence": "evidence/r10-20260828/a2a-identity-receipt.json#setu_sab_agni",
+      "host": "AGNI VPS 157.245.193.15",
+      "tailscale": "100.79.111.89",
+      "role": "SAB gateway / Fleet coordination",
+      "model": "hermes-agent",
+      "provider": "ollama-cloud",
+      "meishi": "setu_sab_agni",
+      "capabilities": [
+        "fleet_coordination",
+        "sab_status",
+        "structured_sparks",
+        "a2a_correspondence"
+      ],
+      "seat": "active",
+      "bio": "Live-card-backed AGNI contact route. The card proves a configured inbox, not a running handler or semantic effect."
     },
     "rushabdev": {
       "callsign": "rushabdev",
@@ -70,6 +93,29 @@
       ],
       "seat": "active",
       "bio": "Semantic bridge hub on Meghadharma VPS. Runs the Global A2A build (57 tests, pending production authorization), fleet state projector, one-pane dashboard, and grok-build gateway. Fastest semantic responder (~36s)."
+    },
+    "fugu_ultra": {
+      "callsign": "fugu-ultra",
+      "display_name": "Fugu Ultra",
+      "a2a_uid": "fugu_ultra",
+      "inbox_subject": "dharma.agent.fugu_ultra.inbox",
+      "inbox_authority": "A2ACard",
+      "inbox_card_sha256": "26c3529eac53d9d733641b784188027f75c52bf67035216f967f53dcb18aa786",
+      "inbox_evidence": "evidence/r10-20260828/a2a-identity-receipt.json#fugu_ultra",
+      "host": "Meghadharma VPS 178.128.87.170",
+      "tailscale": "100.103.106.70",
+      "role": "Persistent code / review / A2A correspondence",
+      "model": "kimi-k2.7-code",
+      "provider": "moonshot",
+      "meishi": "fugu_ultra_persistent",
+      "capabilities": [
+        "code_generation",
+        "code_review",
+        "a2a_correspondence",
+        "evidence_synthesis"
+      ],
+      "seat": "active",
+      "bio": "Live-card-backed Meghadharma contact route. The card proves a configured inbox, not a running handler or semantic effect."
     },
     "dharma-command-node": {
       "callsign": "fleet",
@@ -207,5 +253,5 @@
       "bio": "Fable-lineage fleet seat. Git seat exists. No live NATS presence."
     }
   },
-  "count": 10
+  "count": 12
 }

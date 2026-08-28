@@ -440,7 +440,9 @@ class TestEventsStream:
         text = body.decode()
         assert "event: hello" in text
         data_line = next(
-            l for l in text.splitlines() if l.startswith("data:") and "epoch" in l
+            line
+            for line in text.splitlines()
+            if line.startswith("data:") and "epoch" in line
         )
         assert "1.0.0-dev" in data_line
         assert '"resume_scope": "process_local"' in data_line

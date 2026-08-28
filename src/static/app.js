@@ -19,8 +19,8 @@ const TITLES = {
 const ACK_COPY = {
   PUBLISH_ACCEPTED: 'stored by broker; processing unproven',
   DELIVERED_TO_CONSUMER: 'delivered to a transport consumer',
-  HANDLER_ACKED: 'handler acknowledged',
-  DOMAIN_RECEIPTED: 'domain receipt recorded',
+  HANDLER_ACKED: 'handler ACK subject observed; executor liveness and effect unproven',
+  DOMAIN_RECEIPTED: 'typed domain receipt observed; original effect unproven',
   NO_ACK: 'published without a persistence acknowledgement',
 };
 const BOARD_LANES = [
@@ -265,7 +265,10 @@ function pushTrace(frame) {
     ts: normTs(frame && (frame.ts || frame.observed_at)) || new Date().toISOString(),
     subject: boundedText(frame && (frame.subject || frame.type || frame.event) || 'unknown', 160),
     preview: redactPreview(frame && (frame.preview ?? frame.payload ?? frame.data ?? '')),
-    tier: boundedText(frame && (frame.tier || frame.ack_tier) || '', 80),
+    tier: boundedText(frame && (frame.tier || frame.contact_tier || frame.contact_evidence_tier || frame.ack_tier) || '', 80),
+    correlation_id: boundedText(frame && frame.correlation_id || '', 128),
+    causation_id: boundedText(frame && frame.causation_id || '', 128),
+    trace_id: boundedText(frame && frame.trace_id || '', 128),
   };
   state.trace.push(safe);
   if (state.trace.length > TRACE_LIMIT) state.trace.splice(0, state.trace.length - TRACE_LIMIT);
@@ -856,8 +859,28 @@ async function postChat(message, uid) {
     }
     message.pending = false;
     message.failed = false;
-    message.tier = result.ack_tier || result.tier || null;
+    const contactTier = result.contact_evidence_tier;
+    const transportTier = result.ack_tier || result.tier || null;
+    // A correlated receipt may race ahead of the HTTP PubAck response. Never
+    // downgrade that stronger observation back to a transport-only tier.
+    if (message.tier !== 'DOMAIN_RECEIPTED') {
+      message.tier = contactTier && contactTier !== 'NO_CONTACT'
+        ? contactTier
+        : message.tier === 'HANDLER_ACKED' ? message.tier : transportTier;
+    }
     message.seq = result.seq ?? null;
+    message.correlation_id = result.correlation_id || null;
+    message.causation_id = result.causation_id || null;
+    message.trace_id = result.trace_id || null;
+    pushTrace({
+      ts: result.observed_at || new Date().toISOString(),
+      subject: result.subject || 'fleet.intent.chat',
+      preview: `outbound ${result.message_id || message.msg_id} · semantic effect ${result.semantic_effect || 'unobserved'}`,
+      tier: message.tier,
+      correlation_id: message.correlation_id,
+      causation_id: message.causation_id,
+      trace_id: message.trace_id,
+    });
   } catch (error) {
     message.pending = false;
     message.failed = true;
@@ -1077,8 +1100,19 @@ function renderMessage(message, uid) {
         onclick: () => retryMessage(message, uid),
       }, 'Retry this message'),
     );
-  } else if (message.tier) {
-    article.append(el('p', { class: 'message-state' }, ACK_COPY[message.tier] || boundedText(message.tier, 80)));
+  } else {
+    const tier = message.tier || message.contact_tier || message.contact_evidence_tier;
+    if (tier) article.append(el('p', { class: 'message-state' }, ACK_COPY[tier] || boundedText(tier, 80)));
+  }
+  if (message.domain_receipt_observed && message.domain_receipt) {
+    const receipt = message.domain_receipt;
+    const semantic = receipt.semantic_reply_claim === true
+      ? 'semantic reply claimed by owner receipt'
+      : 'semantic reply not claimed';
+    article.append(el(
+      'p', { class: 'message-state' },
+      `correlated typed receipt · verdict ${boundedText(receipt.verdict || 'unknown', 120)} · ${semantic} · original effect unproven`,
+    ));
   }
   return article;
 }
@@ -1605,6 +1639,9 @@ function receiptRows() {
         subject: `receipt.${receipt.receipt_type || 'unknown'}`,
         preview: `${receipt.receipt_id || '?'} · task ${receipt.task_id || '?'} · status ${receipt.status || 'unknown'}`,
         tier: 'DOMAIN_RECEIPTED',
+        correlation_id: receipt.correlation_id,
+        causation_id: receipt.causation_id,
+        trace_id: receipt.trace_id,
       });
     }
   }
@@ -1612,12 +1649,18 @@ function receiptRows() {
 }
 
 function traceRow(frame) {
-  return el('article', { class: 'trace-row', dataset: { hay: `${frame.subject} ${frame.preview} ${frame.tier}`.toLowerCase() } },
+  const axes = [
+    frame.correlation_id && `corr ${boundedText(frame.correlation_id, 128)}`,
+    frame.causation_id && `cause ${boundedText(frame.causation_id, 128)}`,
+    frame.trace_id && `trace ${boundedText(frame.trace_id, 128)}`,
+  ].filter(Boolean).join(' · ');
+  return el('article', { class: 'trace-row', dataset: { hay: `${frame.subject} ${frame.preview} ${frame.tier} ${axes}`.toLowerCase() } },
     el('div', { class: 'trace-meta mono' },
       el('span', {}, boundedText(frame.subject, 160)),
       relSpan(frame.ts),
     ),
     el('p', {}, redactPreview(frame.preview)),
+    axes ? el('p', { class: 'trace-meta mono' }, axes) : null,
     frame.tier ? el('p', { class: 'trace-tier' }, ACK_COPY[frame.tier] || boundedText(frame.tier, 80)) : null,
   );
 }
@@ -1628,7 +1671,7 @@ function viewTrace(root) {
   const count = el('span', { class: 'trace-count mono' });
   const feed = el('section', { class: 'trace-feed', 'aria-label': 'Bounded trace records' });
   const filter = el('input', {
-    type: 'search', class: 'trace-filter', placeholder: 'Filter subject, preview, or tier',
+    type: 'search', class: 'trace-filter', placeholder: 'Filter trace or causal ID',
     'aria-label': 'Filter trace records', autocomplete: 'off', spellcheck: 'false',
     oninput: (event) => { query = event.target.value.trim().toLowerCase(); applyFilter(); },
   });
