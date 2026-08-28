@@ -7,9 +7,15 @@ All functions take `now` explicitly — no wall-clock reads inside.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from hub import presence
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestFreshness:
@@ -88,8 +94,39 @@ class TestUidForSubject:
         assert presence.uid_for_subject("dharma.fleet.chat", roster_index_by_subject) is None
 
 
+def test_repository_roster_uses_only_live_card_backed_inbox_routes():
+    roster = json.loads((REPO_ROOT / "src" / "roster.json").read_text())
+    receipt = json.loads(
+        (
+            REPO_ROOT
+            / "evidence"
+            / "r10-20260828"
+            / "a2a-identity-receipt.json"
+        ).read_text()
+    )
+    claims = {claim["roster_uid"]: claim for claim in receipt["claims"]}
+
+    assert roster["count"] == len(roster["agents"])
+    assert roster["agents"]["agni-hermes"].get("inbox_subject") is None
+    assert roster["agents"]["meghadharma-hermes"].get("inbox_subject") is None
+    assert set(claims) == {"setu_sab_agni", "fugu_ultra"}
+
+    for uid, claim in claims.items():
+        row = roster["agents"][uid]
+        assert row["seat"] == "active"
+        assert row["a2a_uid"] == claim["agent_uid"]
+        assert row["inbox_subject"] == claim["subject"]
+        assert row["inbox_authority"] == "A2ACard"
+        assert row["inbox_card_sha256"] == claim["source_sha256"]
+        assert row["inbox_evidence"].endswith(f"#{uid}")
+        assert claim["proves_handler_liveness"] is False
+        assert claim["proves_semantic_effect"] is False
+
+
 ROW_KEYS = {
-    "uid", "callsign", "display_name", "subject", "role", "host", "tailscale",
+    "uid", "callsign", "display_name", "a2a_uid", "inbox_subject",
+    "inbox_authority", "inbox_card_sha256", "inbox_evidence", "subject",
+    "role", "host", "tailscale",
     "model", "provider", "seat", "bio", "last_heard", "last_addressed",
     "contact", "freshness", "status", "last_seen",
 }
@@ -143,6 +180,19 @@ class TestDecorate:
         by_uid = {r["uid"]: r for r in rows}
         assert by_uid["agni-hermes"]["contact"] == "heard"
         assert by_uid["fable_composer"]["contact"] == "addressed_only"
+
+    def test_only_ratified_agents_expose_canonical_inboxes(self, rows):
+        by_uid = {r["uid"]: r for r in rows}
+        assert by_uid["agni-hermes"]["a2a_uid"] == "hermes-m5"
+        assert by_uid["agni-hermes"]["inbox_subject"] == (
+            "dharma.agent.hermes-m5.inbox"
+        )
+        assert by_uid["agni-hermes"]["inbox_authority"] == "A2ACard"
+        assert by_uid["agni-hermes"]["inbox_card_sha256"] == "a" * 64
+        assert by_uid["meghadharma-hermes"]["a2a_uid"] is None
+        assert by_uid["meghadharma-hermes"]["inbox_subject"] is None
+        assert by_uid["fable_composer"]["a2a_uid"] is None
+        assert by_uid["fable_composer"]["inbox_subject"] is None
 
     def test_last_seen_fallback_to_last_addressed(self, rows):
         by_uid = {r["uid"]: r for r in rows}

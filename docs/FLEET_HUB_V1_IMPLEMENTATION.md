@@ -1,81 +1,135 @@
 # Fleet Hub v1 candidate — implementation status
 
 Status: **candidate-unqualified**
-Source plan date: 2026-08-26
-Implementation base: canonical `AIKAGRYA/fleet-hub` main at `94a1492`
+Evidence date: 2026-08-28
+Fleet review: [AIKAGRYA/fleet-hub#16](https://github.com/AIKAGRYA/fleet-hub/pull/16)
+Owner review: [AIKAGRYA/dharma_swarm#1471](https://github.com/AIKAGRYA/dharma_swarm/pull/1471)
 
-This drop turns the researched candidate into a reviewable implementation
-without manufacturing the production authorities that the research found
-missing. It is useful code, but it is not yet the plan's definition of v1
-complete.
+This is a working, loopback-only integration candidate. It is not the public
+AGNI deployment and it is not evidence that production owner data, mutation
+authority, or semantic agent replies exist.
 
 ## Implemented boundary
 
-| Area | Implemented claim |
+| Surface | Implemented fact |
 |---|---|
-| Reproducibility | Python 3.11/3.12 lockfile, clean-environment test command, CI |
-| Phone shell | Exactly Helm, Chat, Board, Trace, Roster; Needs-John rail/badge |
-| Prototype provenance | Fixture-backed browser runs carry a persistent SIMULATION banner; local evidence cannot present as production |
-| Provider trust boundary | Existing Pydantic instances and nested owner DTOs are revalidated; `model_construct()` bypasses fail closed |
-| Session security | Random server-side sessions, expiry/revocation, logout, CSRF and same-origin mutation checks |
-| PWA safety | Scoped manifest/service worker; shell-only cache; authenticated and command traffic network-only |
-| Chat ingress | Typed group/DM intent, stable IDs, process-local caller idempotency, explicit transcript-versus-recipient route plan, namespaced `Nats-Msg-Id` within the broker dedupe window |
-| SSE | One multiplexed stream, bounded replay, explicit reset/refetch when continuity is not provable |
-| Mission reads | Bounded/redacted Mission Control DTO covering all nine reconciliation states |
-| Needs John | Pure, deterministic, evidence-linked derivation from an owner snapshot |
-| Board | Read-only capability-gated projection; unavailable is not rendered as empty |
-| Trace | Bounded/redacted evidence view with transport claims kept distinct from task/effect/authority |
-| Roster | Stable UID plus separately labeled, sourced, and expiring observations |
-| Host posture | Loopback systemd service under an unprivileged user; immutable release switch and rollback pointer |
+| Phone shell | Exactly Helm, Chat, Board, Trace, and Roster, plus a persistent Needs-John rail |
+| Authentication | Expiring server-side session, login/logout, CSRF, same-origin checks, and unauthenticated API rejection |
+| Owner read | Bearer-authenticated bounded HTTP adapter; HTTPS except loopback; no redirects, retries, proxies, duplicate JSON keys, or unbounded bodies |
+| Owner authority | One configured mission projection from the owner's exact `TaskBoard` and `RuntimeStateStore`; mismatch and partial initialization fail closed |
+| Board | Nine versioned read-only lanes; three fixture tasks render; commands require owner-advertised authority and are currently unavailable |
+| Needs John | Deterministic evidence-linked projection; empty is claimed only after a successful bounded owner read |
+| NATS | Existing `DHARMA_A2A` stream only; authorized `dharma.a2a.>` observation; existing `dharma.a2a.fleet` group subject |
+| Direct A2A | Outbound routing only for live-card-backed `dharma.agent.<uid>.inbox` bindings with card SHA/evidence |
+| Receipts | PubAck, handler ACK, and typed domain receipt are distinct tiers; none implies executor liveness or effect |
+| SSE/Trace | One bounded process-local stream, explicit reset semantics, bounded/redacted frames, causal IDs preserved |
+| Roster | Stable configured identities; heard/addressed TTL signals are distinct; payload sender remains reported-unverified |
+| PWA | Root and `/fleet/` base-path support, shell-only cache, authenticated/mutation traffic network-only |
 
-The exact evidence for this branch is recorded in `BUILD_RECEIPT.md` after the
-integration gate completes.
+## Active integration proof
 
-The latest non-promoting phone prototype evidence is recorded in
-`docs/FLEET_HUB_V1_PROTOTYPE_EVIDENCE.md`, including 390×844 and 320×844
-screenshots, geometry assertions, and the complete local test result.
+The launcher runs two isolated processes on Meghadharma:
 
-## Deliberately unavailable
+```text
+127.0.0.1:8871  owner fixture API
+127.0.0.1:8872  Fleet Hub candidate
+tmux socket      fleet-r10
+tmux session     fleet-r10-candidate
+```
 
-- There is no configured production transport from AGNI to an authenticated
-  owner-backed Mission Control service. The default provider fails closed.
-- The canonical TaskBoard owner has no verified atomic expected-version
-  transition. Consequently steer, assign, claim, approve, retry, move, and
-  arbitrary task transition controls are disabled.
-- Group transcript publication does not imply a responder cohort. Until routing
-  policy and ACLs are approved, the UI reports only what was actually addressed.
-- A real semantic DM canary, handler acknowledgement, owner-backed Board data,
-  durable owner cursor, and production topology/presence contracts require
-  external authority or owner work beyond this repository.
-- The real-iPhone/standalone/VoiceOver/background matrix and production rollback
-  rehearsal have not been run by source tests.
+The strict launch gate proved:
 
-## Claim discipline
+- Fleet health `ok=true`, authentication configured, and unauthenticated
+  `/api/health` returns `401`;
+- owner connection available with authority
+  `TaskBoard+RuntimeStateStore`;
+- one coherent fixture mission and three owner tasks;
+- NATS connected to `DHARMA_A2A`, stream information readable, and no broker
+  error after the bounded subscriptions were established;
+- Chat advertised, mutation commands absent, durable resume false;
+- fixture provenance and `no production effect` visible in every tab.
 
-Fleet Hub models authority and evidence in its API shapes instead of relying on
-copy. A snapshot identifies `TaskBoard+RuntimeStateStore` as its authority and
-hard-codes `proves_executor_liveness=false`. Needs-John items carry the owner
-version and evidence references but expose no command unless the owner contract
-advertises one. A broker acknowledgement may establish
-`contact=PUBLISH_ACCEPTED`; it cannot promote task, effect, or execution claims.
+The 390×844 browser run opened all five tabs and the mission board. Every tab
+had `scrollWidth == innerWidth`, no visible control below 44px in either
+dimension, and no console, page, or request errors. See
+[`evidence/r10-20260828/fleet-r10-live-browser-proof.json`](../evidence/r10-20260828/fleet-r10-live-browser-proof.json)
+and the adjacent screenshots.
 
-The value currently named `source_version` is a Fleet Hub projection digest,
-not an owner CAS/version. It is valid for cursor invalidation and comparison;
-it cannot satisfy a work-state command precondition.
+## NATS authority boundary
 
-This is the small type-level contribution carried into the build: an unavailable
-authority remains unavailable in both API and UI, so a receipt or green screen
-cannot silently widen what the system is entitled to claim.
+No NATS user, stream, ACL, credential, or server configuration was created or
+changed. The isolated candidate reads the existing root-owned
+`grok-build-a2a.env` and labels the resulting connection:
 
-## Promotion gates remaining
+```text
+transport_principal = grok_build
+transport_authority = borrowed_existing_transport_only
+agent_observation_subject = null
+chat_subject = dharma.a2a.fleet
+startup_backfill = disabled_by_transport_tier
+```
 
-1. Review and merge this candidate branch with CI green.
-2. Specify and implement the authenticated read-only owner adapter.
-3. Add atomic TaskBoard expected-version semantics before enabling commands.
-4. Obtain a least-privilege A2A/ACK/reply ACL and approve a named canary.
-5. Run the real-device, accessibility, reconnect, upgrade, load, and rollback
-   matrix.
-6. Authorize a named immutable release separately from code approval.
+Read-only ACL inspection proved that this principal can publish
+`dharma.a2a.>` and `dharma.agent.*.inbox`, subscribe to `dharma.a2a.>` and
+`dharma.fleet.>`, and read stream information. It cannot subscribe to broad
+`dharma.agent.>` or arbitrary target ACK/reply subjects. Fleet therefore does
+not request those scopes, does not show presence from them, and does not
+promise semantic replies. No live publish canary was sent during this build.
 
-Until all applicable gates are evidenced, UI and health responses retain
-`candidate-unqualified` rather than claiming production-ready v1.
+The transport principal is an authorization fact, not Fleet identity.
+Application envelopes retain the authenticated operator sender and their own
+correlation/causation/trace axes.
+
+Read-only inspection of the active AGNI v0.6 service established its systemd
+unit, environment-file path, and NATS service/configuration path, but not its
+effective NATS principal or ACL patterns. Whether any credential is portable
+or authorized for Fleet remains unknown. The isolated candidate's working
+connection does not close that authority gap.
+
+## Owner boundary
+
+The companion owner change exposes only:
+
+```text
+GET /api/control-surface/missions/{mission_id}/snapshot
+```
+
+It accepts one configured mission ID, caps the returned task set, redacts the
+projection, and advertises no mutation or liveness claim. The active proof
+seeds a separate state directory and never opens the production owner store.
+
+The inspected live owner state did not provide a configured production
+Mission Control mission for this build. Substituting its unscoped/stale tasks
+would have manufactured authority, so the Board remains visibly fixture-backed
+until a real mission is named and authorized.
+
+## Deliberate limits
+
+- No public deployment, AGNI/Caddy/systemd change, or release promotion.
+- Board steer/assign/claim/approve/retry/move/Done controls are unavailable
+  until the owner supplies atomic expected-version semantics and independent
+  verification.
+- Startup JetStream replay and broad agent presence are unavailable under the
+  borrowed transport tier; the live process window is labeled accordingly.
+- SSE resume, DM correlation, Chat history, and Trace frames are process-local.
+- A stream PubAck or handler ACK is contact evidence, not proof that an agent
+  was live, understood the request, or changed owner state.
+- Real-device VoiceOver/background/upgrade/rollback and a separately approved
+  semantic reply canary remain promotion gates.
+
+## Builder path to production
+
+1. Review and merge both PRs with their CI green.
+2. Configure a named production Mission Control mission and the merged owner
+   read endpoint; re-run the Board proof against that bounded mission.
+3. Issue a least-privilege Fleet transport identity rather than borrowing
+   `grok_build`; authorize only required group, inbox, receipt, and reply tiers.
+4. Add owner-side atomic CAS plus independent-verifier evidence before exposing
+   any Board mutation.
+5. Run real-phone accessibility, reconnect, background, load, and rollback
+   qualification.
+6. Authorize and execute the immutable AGNI release procedure separately.
+
+Until those gates are evidenced, the code and UI retain
+`candidate-unqualified`; the active candidate remains useful without claiming
+authority it does not have.

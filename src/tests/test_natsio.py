@@ -1,10 +1,10 @@
 """Contract: hub/natsio.py (CONTRACT.md "hub/ module interfaces" — natsio).
 
 Verifies: handle_msg sync core (chat append + synthesized srv- msg_id, echo
-suppression via state.sent, raw preview truncation, DM routing by subject,
-json fallback, live bus emits) and async send() (JetStream PUBLISH_ACCEPTED
-ack, core-NATS NO_ACK fallback, unknown recipient, nats-down error, payload
-shape with a canonical envelope and broker dedupe header).
+suppression via state.sent, bounded raw preview, canonical/legacy inbound DM
+observation, exact ACK/reply correlation, json fallback, live bus emits) and
+async send() (canonical agent-inbox envelope, fail-closed roster binding,
+JetStream PUBLISH_ACCEPTED, core-NATS NO_ACK fallback, and broker dedupe).
 
 Uses fakes from conftest — no network, no real NATS.
 """
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -38,12 +39,69 @@ def cfg():
         replay_streams=["DHARMA_A2A"],
         live_window_s=300,
         recent_window_s=7200,
+        fleet_sender_uid="fleet-hub-test",
     )
 
 
 @pytest.fixture
 def hub_state():
     return state_mod.HubState()
+
+
+class TestCanonicalRoutingIndexes:
+    def test_only_exact_roster_bindings_are_ratified(self, roster):
+        indexes = natsio.build_indexes(roster)
+
+        assert indexes["by_a2a_uid"] == {
+            "hermes-m5": "agni-hermes",
+        }
+        assert indexes["by_inbox_subject"] == {
+            "dharma.agent.hermes-m5.inbox": "agni-hermes",
+        }
+        assert "fable_composer" not in indexes["by_a2a_uid"]
+
+    def test_identity_collision_removes_outbound_binding(self, roster):
+        collided = deepcopy(roster)
+        collided["agents"]["second-agni"] = {
+            "callsign": "second-agni",
+            "display_name": "Second AGNI claim",
+            "a2a_uid": "hermes-m5",
+            "inbox_subject": "dharma.agent.hermes-m5.inbox",
+            "inbox_authority": "A2ACard",
+            "inbox_card_sha256": "b" * 64,
+            "inbox_evidence": "test-fixture://owner-card/collision",
+            "subject": "dharma.a2a.second-agni",
+            "seat": "active",
+        }
+
+        indexes = natsio.build_indexes(collided)
+
+        assert "hermes-m5" in indexes["ambiguous_a2a_uids"]
+        assert "dharma.agent.hermes-m5.inbox" in indexes[
+            "ambiguous_inbox_subjects"
+        ]
+        assert "hermes-m5" not in indexes["by_a2a_uid"]
+        assert "dharma.agent.hermes-m5.inbox" not in indexes["by_inbox_subject"]
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("inbox_authority", "roster-self-claim"),
+            ("inbox_card_sha256", "not-a-sha256"),
+            ("inbox_evidence", ""),
+            ("inbox_evidence", "bad\ncontrol"),
+        ],
+    )
+    def test_card_authority_evidence_is_required(self, roster, field, value):
+        unproven = deepcopy(roster)
+        unproven["agents"]["agni-hermes"][field] = value
+
+        indexes = natsio.build_indexes(unproven)
+
+        assert "hermes-m5" not in indexes["by_a2a_uid"]
+        assert "dharma.agent.hermes-m5.inbox" not in indexes[
+            "by_inbox_subject"
+        ]
 
 
 class TestHandleMsg:
@@ -112,7 +170,9 @@ class TestHandleMsg:
         assert len(entry["preview"]) <= 160
         assert "ts" in entry
 
-    def test_dm_routed_to_subject_uid(self, hub_state, cfg, roster_indexes, frozen_now):
+    def test_legacy_dm_subject_remains_inbound_compatibility_only(
+        self, hub_state, cfg, roster_indexes, frozen_now
+    ):
         data = json.dumps({"from": "operator-x", "text": "private ping"}).encode()
         natsio.handle_msg(
             hub_state, cfg, roster_indexes, "dharma.a2a.hermes", data, frozen_now, live=False
@@ -122,6 +182,27 @@ class TestHandleMsg:
         assert hub_state.dms["agni-hermes"][0]["text"] == "private ping"
         # a DM is not group chat
         assert len(hub_state.chat) == 0
+
+    def test_canonical_inbox_message_routes_to_verified_roster_uid(
+        self, hub_state, cfg, roster_indexes, frozen_now
+    ):
+        data = json.dumps(
+            {"from": "hermes-m5", "text": "canonical reply"}
+        ).encode()
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            "dharma.agent.hermes-m5.inbox",
+            data,
+            frozen_now,
+            live=False,
+        )
+
+        message = hub_state.dms["agni-hermes"][0]
+        assert message["text"] == "canonical reply"
+        assert message["sender_claim"]["status"] == "reported_unverified"
+        assert hub_state.presence["agni-hermes"]["last_heard"] is None
 
     def test_dm_reply_style_subject(self, hub_state, cfg, roster_indexes, frozen_now):
         data = json.dumps({"text": "reply lane"}).encode()
@@ -292,11 +373,452 @@ class TestSend:
             principal_scope=PRINCIPAL,
         )
         assert res["ok"] is True
-        subject, _ = fake_js.published[0]
-        assert subject == "dharma.a2a.hermes"
+        subject, payload = fake_js.published[0]
+        body = json.loads(payload)
+        assert subject == "dharma.agent.hermes-m5.inbox"
+        assert subject != roster["agents"]["agni-hermes"]["subject"]
+        assert body["schema_version"] == "dharma.a2a.send.v1"
+        assert body["packet_id"] == "m-3"
+        assert body["from"] == "fleet-hub-test"
+        assert body["to"] == "hermes-m5"
+        assert body["route"] == "agent-inbox"
+        assert body["target_uid"] == "hermes-m5"
+        assert body["subject"] == subject
+        assert body["ack_subject"] == f"{subject}.ack.m-3"
+        assert body["reply_subject"] == f"{subject}.reply.m-3"
+        assert body["content"] == body["text"] == "psst"
+        assert fake_js.published_headers[0]["Dharma-Nats-Schema"] == (
+            "dharma.a2a.send.v1"
+        )
         assert len(hub_state.dms.get("agni-hermes", ())) == 1
         assert res["route_plan"]["mode"] == "direct_message"
+        assert res["route_plan"]["route"] == "agent-inbox"
         assert res["route_plan"]["recipient_uid"] == "agni-hermes"
+        assert res["target_uid"] == "hermes-m5"
+        assert res["inbox_authority"] == "A2ACard"
+        assert res["inbox_card_sha256"] == "a" * 64
+        assert res["inbox_evidence"] == "test-fixture://owner-card/hermes-m5"
+        assert res["route_plan"]["inbox_authority"] == "A2ACard"
+        assert res["packet_id"] == "m-3"
+        assert res["handler_acknowledged"] is False
+        assert res["proves_executor_liveness"] is False
+
+    @pytest.mark.asyncio
+    async def test_legacy_subject_is_never_an_outbound_fallback(
+        self, hub_state, cfg, roster, fake_js, fake_nc
+    ):
+        unratified = deepcopy(roster)
+        agent = unratified["agents"]["agni-hermes"]
+        agent.pop("a2a_uid")
+        agent.pop("inbox_subject")
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            unratified,
+            "do not guess",
+            "hermes",
+            "m-unratified",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert result == {
+            "ok": False,
+            "accepted": False,
+            "error": "recipient_inbox_unratified",
+        }
+        assert fake_js.published == []
+        assert fake_nc.published == []
+
+    @pytest.mark.asyncio
+    async def test_mismatched_canonical_binding_fails_closed(
+        self, hub_state, cfg, roster, fake_js, fake_nc
+    ):
+        mismatched = deepcopy(roster)
+        mismatched["agents"]["agni-hermes"]["inbox_subject"] = (
+            "dharma.agent.someone-else.inbox"
+        )
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            mismatched,
+            "do not guess",
+            "hermes",
+            "m-mismatch",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert result["error"] == "recipient_inbox_unratified"
+        assert fake_js.published == []
+
+    @pytest.mark.asyncio
+    async def test_dm_requires_subject_safe_packet_id(
+        self, hub_state, cfg, roster, fake_js, fake_nc
+    ):
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "bounded",
+            "hermes",
+            "unsafe.packet",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert result["error"] == "packet_id_invalid"
+        assert fake_js.published == []
+
+    @pytest.mark.asyncio
+    async def test_invalid_local_sender_identity_fails_closed(
+        self, hub_state, cfg, roster, fake_js, fake_nc
+    ):
+        cfg.fleet_sender_uid = "bad.sender"
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "bounded",
+            "hermes",
+            "m-sender",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert result["error"] == "sender_identity_invalid"
+        assert fake_js.published == []
+
+    @pytest.mark.asyncio
+    async def test_correlated_handler_ack_is_contact_not_liveness_or_effect(
+        self, hub_state, cfg, roster, roster_indexes, frozen_now, fake_js, fake_nc
+    ):
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "contact me",
+            "hermes",
+            "m-handler-ack",
+            principal_scope=PRINCIPAL,
+        )
+
+        ack_data = json.dumps(
+            {
+                "packet_id": "m-handler-ack",
+                "status": "consumed",
+                "from": "untrusted-payload-claim",
+            }
+        ).encode()
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            result["ack_subject"],
+            ack_data,
+            frozen_now,
+            live=True,
+        )
+        # Duplicate delivery is receipt-idempotent.
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            result["ack_subject"],
+            ack_data,
+            frozen_now + 1,
+            live=True,
+        )
+
+        outgoing = hub_state.dms["agni-hermes"][0]
+        assert outgoing["tier"] == "HANDLER_ACKED"
+        assert outgoing["contact_tier"] == "HANDLER_ACKED"
+        assert outgoing["handler_acknowledged"] is True
+        assert outgoing["proves_executor_liveness"] is False
+        assert outgoing["semantic_effect"] == "unobserved"
+        assert len(outgoing["contact_receipts"]) == 1
+        receipt = outgoing["contact_receipts"][0]
+        assert receipt["contact_evidence_tier"] == "HANDLER_ACKED"
+        assert receipt["proves_executor_liveness"] is False
+        assert receipt["proves_semantic_effect"] is False
+        assert hub_state.presence == {}
+
+    @pytest.mark.asyncio
+    async def test_correlated_semantic_reply_stays_in_originating_dm(
+        self, hub_state, cfg, roster, roster_indexes, frozen_now, fake_js, fake_nc
+    ):
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "origin",
+            "hermes",
+            "m-reply",
+            principal_scope=PRINCIPAL,
+            correlation_id="corr-origin",
+            causation_id="cause-origin",
+            trace_id="trace-origin",
+        )
+        hostile_wire_claims = json.dumps(
+            {
+                "message_id": "reply-safe",
+                "text": "semantic answer",
+                "from": "meghadharma-hermes",
+                "to": "meghadharma-hermes",
+                "correlation_id": "corr-hostile",
+                "trace_id": "trace-hostile",
+            }
+        ).encode()
+
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            result["reply_subject"],
+            hostile_wire_claims,
+            frozen_now,
+            live=True,
+        )
+
+        assert len(hub_state.dms["agni-hermes"]) == 2
+        assert not hub_state.dms.get("meghadharma-hermes")
+        reply = hub_state.dms["agni-hermes"][-1]
+        assert reply["text"] == "semantic answer"
+        assert reply["from"] == "hermes-m5"
+        assert reply["sender_claim"]["status"] == "reply_subject_correlated"
+        assert reply["correlation_id"] == "corr-origin"
+        assert reply["causation_id"] == "cause-origin"
+        assert reply["trace_id"] == "trace-origin"
+        assert reply["reply_to_message_id"] == "m-reply"
+        assert reply["semantic_reply_observed"] is True
+        assert reply["proves_executor_liveness"] is False
+        assert reply["proves_original_effect"] is False
+        assert result["causation_id"] == "cause-origin"
+        assert hub_state.dms["agni-hermes"][0]["causation_id"] == "cause-origin"
+        assert hub_state.raw[-1]["correlation_id"] == "corr-origin"
+        assert hub_state.raw[-1]["causation_id"] == "cause-origin"
+        assert hub_state.raw[-1]["trace_id"] == "trace-origin"
+        reported = hub_state.presence["meghadharma-hermes"]
+        assert reported["last_heard"] is None
+        assert reported["last_reported_sender"] == "meghadharma-hermes"
+
+    @pytest.mark.asyncio
+    async def test_owner_typed_domain_receipt_without_text_is_projected(
+        self, hub_state, cfg, roster, roster_indexes, frozen_now, fake_js, fake_nc
+    ):
+        """Mirror scripts/runtime/a2a_domain_reply_worker.py's exact wire shape."""
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "build it",
+            "hermes",
+            "m-domain-receipt",
+            principal_scope=PRINCIPAL,
+            correlation_id="corr-domain",
+            causation_id="cause-domain",
+            trace_id="trace-domain",
+        )
+        wire = {
+            "schema_version": "dharma.a2a.domain_receipt.v1",
+            "timestamp": "2026-08-28T00:00:00+00:00",
+            "from_agent": "hermes-m5",
+            "to_agent": "fleet-hub-test",
+            "packet_id": "m-domain-receipt",
+            "reply_subject": result["reply_subject"],
+            "domain_receipt": True,
+            "semantic_reply_claim": True,
+            "target_owned_artifact_claim": True,
+            "peer_model_processed_claim": True,
+            "author_kind": "target_outbox_artifact",
+            "verdict": "accepted",
+            "summary": "Owner artifact reports the requested build is ready for review.",
+            "evidence_refs": ["memory://hermes/domain-reply"],
+            "source_artifact_schema": "dharma.a2a.domain_reply_artifact.v1",
+            "source_artifact_path": "/owner/private/artifact.json",
+            "source_artifact_sha256": "b" * 64,
+            "causation_send_receipt_path": "/owner/private/send.json",
+            "causation_send_receipt_sha256": "c" * 64,
+            "operator_contact_note": "typed domain receipt published",
+        }
+        assert "text" not in wire
+
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            result["reply_subject"],
+            json.dumps(wire).encode(),
+            frozen_now,
+            live=True,
+        )
+
+        outgoing, reply = hub_state.dms["agni-hermes"]
+        assert outgoing["tier"] == "DOMAIN_RECEIPTED"
+        assert outgoing["contact_tier"] == "DOMAIN_RECEIPTED"
+        assert outgoing["proves_executor_liveness"] is False
+        assert outgoing["semantic_effect"] == "unobserved"
+        assert reply["text"] == wire["summary"]
+        assert reply["tier"] == "DOMAIN_RECEIPTED"
+        assert reply["domain_receipt_observed"] is True
+        assert reply["semantic_reply_claim"] is True
+        assert reply["correlation_id"] == "corr-domain"
+        assert reply["causation_id"] == "cause-domain"
+        assert reply["trace_id"] == "trace-domain"
+        assert reply["proves_executor_liveness"] is False
+        assert reply["proves_original_effect"] is False
+        receipt = reply["contact_receipts"][0]
+        assert receipt["schema_version"] == "dharma.a2a.domain_receipt.v1"
+        assert receipt["contact_evidence_tier"] == "DOMAIN_RECEIPTED"
+        assert receipt["domain_receipt_claim"] is True
+        assert receipt["proves_original_effect"] is False
+        assert "source_artifact_path" not in receipt
+        assert "causation_send_receipt_path" not in receipt
+        assert hub_state.raw[-1]["tier"] == "DOMAIN_RECEIPTED"
+        assert hub_state.raw[-1]["causation_id"] == "cause-domain"
+        assert "/owner/private" not in hub_state.raw[-1]["preview"]
+
+    @pytest.mark.asyncio
+    async def test_unmatched_reply_lane_cannot_create_a_dm(
+        self, hub_state, cfg, roster_indexes, frozen_now
+    ):
+        natsio.handle_msg(
+            hub_state,
+            cfg,
+            roster_indexes,
+            "dharma.agent.hermes-m5.inbox.reply.unknown-packet",
+            json.dumps({"text": "orphan"}).encode(),
+            frozen_now,
+            live=False,
+        )
+
+        assert hub_state.dms == {}
+        assert len(hub_state.raw) == 1
+
+    @pytest.mark.asyncio
+    async def test_dm_correlation_map_saturates_fail_closed(
+        self, hub_state, cfg, roster, fake_js, fake_nc, monkeypatch
+    ):
+        monkeypatch.setattr(natsio, "MAX_PENDING_DM_CORRELATIONS", 1)
+        hub_state.js = fake_js
+        hub_state.nc = fake_nc
+        first = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "first",
+            "hermes",
+            "m-cap-first",
+            principal_scope=PRINCIPAL,
+        )
+        second = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "second",
+            "hermes",
+            "m-cap-second",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert first["ok"] is True
+        assert second["error"] == "dm_correlation_unavailable"
+        assert len(fake_js.published) == 1
+
+    @pytest.mark.asyncio
+    async def test_ack_and_reply_race_before_puback_is_correlated(
+        self, hub_state, cfg, roster, roster_indexes, frozen_now, fake_nc
+    ):
+        class ContactBeforeAck:
+            published = []
+            published_headers = []
+
+            async def publish(self, subject, payload, headers=None, timeout=None):
+                del timeout
+                self.published.append((subject, payload))
+                self.published_headers.append(dict(headers or {}))
+                body = json.loads(payload)
+                natsio.handle_msg(
+                    hub_state,
+                    cfg,
+                    roster_indexes,
+                    body["ack_subject"],
+                    json.dumps({"status": "consumed"}).encode(),
+                    frozen_now,
+                    live=True,
+                )
+                natsio.handle_msg(
+                    hub_state,
+                    cfg,
+                    roster_indexes,
+                    body["reply_subject"],
+                    json.dumps(
+                        {"message_id": "reply-race", "text": "race answer"}
+                    ).encode(),
+                    frozen_now + 1,
+                    live=True,
+                )
+                from tests.conftest import FakePubAck
+
+                return FakePubAck(7)
+
+        hub_state.js = ContactBeforeAck()
+        hub_state.nc = fake_nc
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "race question",
+            "hermes",
+            "m-contact-race",
+            principal_scope=PRINCIPAL,
+        )
+
+        assert result["accepted"] is True
+        assert result["handler_acknowledged"] is True
+        assert result["contact_evidence_tier"] == "HANDLER_ACKED"
+        outgoing, reply = hub_state.dms["agni-hermes"]
+        assert outgoing["message_id"] == "m-contact-race"
+        assert outgoing["handler_acknowledged"] is True
+        assert reply["message_id"] == "reply-race"
+        assert reply["reply_to_message_id"] == "m-contact-race"
+        assert getattr(hub_state, "_a2a_dm_correlations") == {}
+
+    @pytest.mark.asyncio
+    async def test_failed_dm_publish_releases_bounded_correlation(
+        self, hub_state, cfg, roster, fake_nc
+    ):
+        from tests.conftest import FakeJS
+
+        hub_state.js = FakeJS(publish_exc=RuntimeError("not published"))
+        hub_state.nc = fake_nc
+        result = await natsio.send(
+            hub_state,
+            cfg,
+            roster,
+            "will fail",
+            "hermes",
+            "m-failed-dm",
+            principal_scope=PRINCIPAL,
+            require_jetstream=True,
+        )
+
+        assert result["error"] == "jetstream_publish_unavailable"
+        assert getattr(hub_state, "_a2a_dm_correlations") == {}
 
     @pytest.mark.asyncio
     async def test_jetstream_failure_falls_back_to_core_no_ack(
@@ -499,6 +1021,134 @@ class TestSend:
         )
         assert result["accepted"] is False
         assert result["error"] == "jetstream_publish_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_replay_queries_canonical_and_legacy_observation_lanes(
+    hub_state, cfg, roster
+):
+    from tests.conftest import FakePullSub
+
+    class NotFound(Exception):
+        pass
+
+    class RecordingReplayJS:
+        def __init__(self):
+            self.lanes = []
+
+        async def get_last_msg(self, stream, subject):
+            self.lanes.append((stream, subject))
+            raise NotFound(subject)
+
+        async def pull_subscribe(self, subject, stream=None, config=None):
+            del subject, stream, config
+            return FakePullSub()
+
+    replay_js = RecordingReplayJS()
+    hub_state.js = replay_js
+
+    await natsio.replay(hub_state, cfg, roster)
+
+    assert replay_js.lanes == [
+        ("DHARMA_A2A", "dharma.agent.hermes-m5.inbox"),
+        ("DHARMA_A2A", "dharma.a2a.hermes"),
+        ("DHARMA_A2A", "dharma.a2a.fleet.reply.meghadharma_hermes"),
+    ]
+    assert hub_state.replay["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_live_loop_subscribes_canonical_and_compatibility_namespaces(
+    hub_state, cfg, roster, monkeypatch
+):
+    class LoopNC:
+        def __init__(self):
+            self.is_connected = False
+            self.subjects = []
+            self.closed = False
+
+        def jetstream(self):
+            return object()
+
+        async def subscribe(self, subject, cb=None):
+            assert cb is not None
+            self.subjects.append(subject)
+
+        async def close(self):
+            self.closed = True
+
+    nc = LoopNC()
+
+    async def connect(*args, **kwargs):
+        del args, kwargs
+        return nc
+
+    async def stop_after_first_connection(delay):
+        assert delay == 5
+        raise asyncio.CancelledError
+
+    cfg.url = "nats://unit.test:4222"
+    cfg.user = None
+    cfg.password = None
+    hub_state.replay["ran_at"] = "already-replayed"
+    monkeypatch.setattr(natsio.nats, "connect", connect)
+    monkeypatch.setattr(natsio.asyncio, "sleep", stop_after_first_connection)
+
+    with pytest.raises(asyncio.CancelledError):
+        await natsio.nats_loop(hub_state, cfg, roster)
+
+    assert nc.subjects == [
+        "dharma.agent.>",
+        "dharma.a2a.>",
+        CHAT_SUBJECT,
+    ]
+    assert nc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_live_loop_can_use_bounded_a2a_observation_tier(
+    hub_state, cfg, roster, monkeypatch
+):
+    class LoopNC:
+        def __init__(self):
+            self.is_connected = False
+            self.subjects = []
+
+        def jetstream(self):
+            return object()
+
+        async def subscribe(self, subject, cb=None):
+            assert cb is not None
+            self.subjects.append(subject)
+
+        async def close(self):
+            return None
+
+    nc = LoopNC()
+
+    async def connect(*args, **kwargs):
+        del args, kwargs
+        return nc
+
+    async def stop_after_first_connection(delay):
+        assert delay == 5
+        raise asyncio.CancelledError
+
+    cfg.url = "nats://unit.test:4222"
+    cfg.user = None
+    cfg.password = None
+    cfg.agent_observation_subject = None
+    cfg.chat_subject = "dharma.a2a.fleet"
+    cfg.startup_replay_enabled = False
+    monkeypatch.setattr(natsio.nats, "connect", connect)
+    monkeypatch.setattr(natsio.asyncio, "sleep", stop_after_first_connection)
+
+    with pytest.raises(asyncio.CancelledError):
+        await natsio.nats_loop(hub_state, cfg, roster)
+
+    assert nc.subjects == ["dharma.a2a.>"]
+    assert hub_state.replay["error"] == "disabled_by_transport_tier"
+    assert hub_state.replay["ran_at"] is not None
 
 
 def test_payload_sender_remains_reported_unverified(

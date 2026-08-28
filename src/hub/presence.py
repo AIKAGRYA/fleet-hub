@@ -130,6 +130,13 @@ def _row(
         "uid": uid,
         "callsign": info.get("callsign"),
         "display_name": info.get("display_name"),
+        "a2a_uid": info.get("a2a_uid"),
+        "inbox_subject": info.get("inbox_subject"),
+        "inbox_authority": info.get("inbox_authority"),
+        "inbox_card_sha256": info.get("inbox_card_sha256"),
+        "inbox_evidence": info.get("inbox_evidence"),
+        # Compatibility observation only. Outbound addressing uses the
+        # explicitly ratified inbox_subject instead.
         "subject": info.get("subject"),
         "role": info.get("role"),
         "host": info.get("host"),

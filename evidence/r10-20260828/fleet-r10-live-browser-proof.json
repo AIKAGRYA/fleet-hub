@@ -1,0 +1,54 @@
+{
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "tabs": {
+    "helm": {
+      "title": "Helm · Fleet Hub",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false,
+      "undersizedTargets": [],
+      "modeBanner": "Simulation\n      meghadharma-loopback-r10 · no production effect",
+      "heading": "Helm"
+    },
+    "chat": {
+      "title": "Chat · Fleet Hub",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false,
+      "undersizedTargets": [],
+      "modeBanner": "Simulation\n      meghadharma-loopback-r10 · no production effect",
+      "heading": "Chat"
+    },
+    "board": {
+      "title": "Board · Fleet Hub",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false,
+      "undersizedTargets": [],
+      "modeBanner": "Simulation\n      meghadharma-loopback-r10 · no production effect",
+      "heading": "Board"
+    },
+    "trace": {
+      "title": "Trace · Fleet Hub",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false,
+      "undersizedTargets": [],
+      "modeBanner": "Simulation\n      meghadharma-loopback-r10 · no production effect",
+      "heading": "Trace"
+    },
+    "roster": {
+      "title": "Roster · Fleet Hub",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "horizontalOverflow": false,
+      "undersizedTargets": [],
+      "modeBanner": "Simulation\n      meghadharma-loopback-r10 · no production effect",
+      "heading": "Roster"
+    }
+  },
+  "errors": []
+}
