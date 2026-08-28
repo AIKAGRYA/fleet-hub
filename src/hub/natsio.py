@@ -1100,11 +1100,18 @@ async def nats_loop(state, cfg, roster) -> None:
                 except Exception as exc:
                     state.last_error = f"handle_message_failed:{type(exc).__name__}"
 
-            await nc.subscribe("dharma.agent.>", cb=on_msg)
+            agent_observation_subject = getattr(
+                cfg, "agent_observation_subject", "dharma.agent.>"
+            )
+            if agent_observation_subject:
+                await nc.subscribe(agent_observation_subject, cb=on_msg)
             # Compatibility observation only; new outbound DMs never select
             # this namespace.
             await nc.subscribe("dharma.a2a.>", cb=on_msg)
-            await nc.subscribe(cfg.chat_subject, cb=on_msg)
+            # A chat subject inside the A2A namespace is already covered by
+            # the subscription above. Avoid duplicate delivery.
+            if not cfg.chat_subject.startswith("dharma.a2a."):
+                await nc.subscribe(cfg.chat_subject, cb=on_msg)
             while nc.is_connected:
                 await asyncio.sleep(2)
             state.connected = False

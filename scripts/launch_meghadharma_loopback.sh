@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Launch an isolated, non-promoted Fleet candidate on Meghadharma. The source
-# trees and existing NATS credential files are read-only; Caddy, systemd, ACLs,
+# trees and the existing NATS credential file are read-only; Caddy, systemd, ACLs,
 # and the live Dharma owner state are never touched.
 
 umask 077
@@ -35,8 +35,8 @@ session_name=fleet-r10-candidate
 owner_container=fleet-r10-owner
 seed_container=fleet-r10-seed
 runtime_image=${FLEET_R10_IMAGE:-dharma_swarm-swarm:0d83431a}
-nats_env_file=${FLEET_R10_NATS_ENV:-/etc/dharma/codex-composer-replica.env}
-nats_secret_file=${FLEET_R10_NATS_SECRET:-/etc/dharma/codex-composer-nats.secret}
+nats_env_file=${FLEET_R10_NATS_ENV:-/etc/dharma/grok-build-a2a.env}
+nats_principal=${FLEET_R10_NATS_PRINCIPAL:-grok_build}
 launch_complete=0
 session_created=0
 owner_launch_requested=0
@@ -90,8 +90,8 @@ done
   echo "Fleet host runner is absent or not executable." >&2
   exit 1
 }
-[[ -f "$nats_env_file" && -f "$nats_secret_file" ]] || {
-  echo "Expected read-only NATS credential files are absent." >&2
+[[ -f "$nats_env_file" ]] || {
+  echo "Expected read-only NATS credential file is absent." >&2
   exit 1
 }
 docker image inspect "$runtime_image" >/dev/null
@@ -159,23 +159,30 @@ hub_bootstrap_file="$runtime_dir/hub-bootstrap.json"
 } >"$hub_curl_config"
 chmod 600 "$owner_curl_config" "$hub_curl_config"
 
-# These files are root-owned infrastructure inputs. Source only the named
-# existing file and map its known variables; never print their values.
-set -a
-# shellcheck disable=SC1090
-source "$nats_env_file"
-set +a
-nats_url=${CODEX_COMPOSER_NATS_URL:-}
-nats_user=${CODEX_COMPOSER_NATS_USER:-}
-mapfile -t nats_secret_lines <"$nats_secret_file"
-if ((${#nats_secret_lines[@]} != 1)) \
-  || [[ "${nats_secret_lines[0]}" != CODEX_COMPOSER_NATS_PASSWORD=* ]]; then
-  echo "NATS secret input has an unexpected shape." >&2
-  exit 1
-fi
-nats_pass=${nats_secret_lines[0]#CODEX_COMPOSER_NATS_PASSWORD=}
+# This root-owned infrastructure input is read literally, not sourced. That
+# preserves shell metacharacters in credentials and admits only the three
+# expected keys. Values are never printed.
+nats_url=
+nats_user=
+nats_pass=
+while IFS='=' read -r key value || [[ -n "$key" ]]; do
+  case "$key" in
+    ""|'#'*) ;;
+    NATS_URL) nats_url=$value ;;
+    NATS_USER) nats_user=$value ;;
+    NATS_PASSWORD) nats_pass=$value ;;
+    *)
+      echo "NATS credential input has an unexpected key." >&2
+      exit 1
+      ;;
+  esac
+done <"$nats_env_file"
 if [[ -z "$nats_url" || -z "$nats_user" || -z "$nats_pass" ]]; then
   echo "NATS credential inputs are incomplete." >&2
+  exit 1
+fi
+if [[ "$nats_user" != "$nats_principal" ]]; then
+  echo "NATS credential principal does not match the declared transport tier." >&2
   exit 1
 fi
 
@@ -210,11 +217,14 @@ hub_env="$runtime_dir/hub.env"
   printf 'FLEET_HUB_GENERATED_BY_FIXTURE=1\n'
   printf 'FLEET_HUB_DEPLOYMENT_NAMESPACE=meghadharma-loopback-r10\n'
   printf 'FLEET_HUB_AGENT_UID=operator\n'
+  printf 'FLEET_HUB_NATS_AGENT_OBSERVATION_SUBJECT=\n'
+  printf 'FLEET_HUB_NATS_TRANSPORT_PRINCIPAL=%s\n' "$nats_principal"
+  printf 'FLEET_HUB_NATS_TRANSPORT_AUTHORITY=borrowed_existing_transport_only\n'
   printf 'NATS_URL=%s\n' "$nats_url"
   printf 'NATS_USER=%s\n' "$nats_user"
   printf 'NATS_PASS=%s\n' "$nats_pass"
   printf 'NATS_STREAM=DHARMA_A2A\n'
-  printf 'NATS_CHAT_SUBJECT=dharma.fleet.chat\n'
+  printf 'NATS_CHAT_SUBJECT=dharma.a2a.fleet\n'
 } >"$hub_env"
 chmod 600 "$owner_env" "$hub_env"
 

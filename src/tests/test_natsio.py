@@ -1105,6 +1105,50 @@ async def test_live_loop_subscribes_canonical_and_compatibility_namespaces(
     assert nc.closed is True
 
 
+@pytest.mark.asyncio
+async def test_live_loop_can_use_bounded_a2a_observation_tier(
+    hub_state, cfg, roster, monkeypatch
+):
+    class LoopNC:
+        def __init__(self):
+            self.is_connected = False
+            self.subjects = []
+
+        def jetstream(self):
+            return object()
+
+        async def subscribe(self, subject, cb=None):
+            assert cb is not None
+            self.subjects.append(subject)
+
+        async def close(self):
+            return None
+
+    nc = LoopNC()
+
+    async def connect(*args, **kwargs):
+        del args, kwargs
+        return nc
+
+    async def stop_after_first_connection(delay):
+        assert delay == 5
+        raise asyncio.CancelledError
+
+    cfg.url = "nats://unit.test:4222"
+    cfg.user = None
+    cfg.password = None
+    cfg.agent_observation_subject = None
+    cfg.chat_subject = "dharma.a2a.fleet"
+    hub_state.replay["ran_at"] = "already-replayed"
+    monkeypatch.setattr(natsio.nats, "connect", connect)
+    monkeypatch.setattr(natsio.asyncio, "sleep", stop_after_first_connection)
+
+    with pytest.raises(asyncio.CancelledError):
+        await natsio.nats_loop(hub_state, cfg, roster)
+
+    assert nc.subjects == ["dharma.a2a.>"]
+
+
 def test_payload_sender_remains_reported_unverified(
     hub_state, cfg, roster_indexes, frozen_now
 ):

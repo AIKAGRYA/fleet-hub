@@ -111,6 +111,24 @@ NATS_PASS = os.environ.get("NATS_PASS") or os.environ.get("NATS_PASSWORD") or No
 STREAM = os.environ.get("NATS_STREAM", "DHARMA_A2A")
 CHAT_SUBJECT = os.environ.get("NATS_CHAT_SUBJECT", "dharma.fleet.chat")
 FLEET_SENDER_UID = os.environ.get("FLEET_HUB_AGENT_UID", "operator").strip()
+_agent_observation_subject = os.environ.get(
+    "FLEET_HUB_NATS_AGENT_OBSERVATION_SUBJECT", "dharma.agent.>"
+).strip()
+if _agent_observation_subject not in {"", "dharma.agent.>"}:
+    _agent_observation_subject = "dharma.agent.>"
+NATS_AGENT_OBSERVATION_SUBJECT = _agent_observation_subject or None
+_transport_principal = os.environ.get(
+    "FLEET_HUB_NATS_TRANSPORT_PRINCIPAL", "unspecified"
+).strip()
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", _transport_principal):
+    _transport_principal = "unspecified"
+NATS_TRANSPORT_PRINCIPAL = _transport_principal
+_transport_authority = os.environ.get(
+    "FLEET_HUB_NATS_TRANSPORT_AUTHORITY", "credential_owner_unspecified"
+).strip()
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", _transport_authority):
+    _transport_authority = "credential_owner_unspecified"
+NATS_TRANSPORT_AUTHORITY = _transport_authority
 MONITOR_URL = os.environ.get("NATS_MONITOR_URL", "http://127.0.0.1:8222")
 LIVE_WINDOW_S = _env_int("FLEET_LIVE_WINDOW_S", 300, minimum=10, maximum=86_400)
 RECENT_WINDOW_S = _env_int(
@@ -161,6 +179,7 @@ CFG = SimpleNamespace(
     password=NATS_PASS,
     stream=STREAM,
     chat_subject=CHAT_SUBJECT,
+    agent_observation_subject=NATS_AGENT_OBSERVATION_SUBJECT,
     fleet_sender_uid=FLEET_SENDER_UID,
     monitor_url=MONITOR_URL,
     live_window_s=LIVE_WINDOW_S,
@@ -1037,6 +1056,10 @@ async def api_status() -> dict[str, Any]:
         "nats": {
             "connected": STATE.connected,
             "stream": STREAM,
+            "chat_subject": CHAT_SUBJECT,
+            "agent_observation_subject": NATS_AGENT_OBSERVATION_SUBJECT,
+            "transport_principal": NATS_TRANSPORT_PRINCIPAL,
+            "transport_authority": NATS_TRANSPORT_AUTHORITY,
             "messages": STATE.messages,
             "last_seq": STATE.last_seq,
         },
@@ -1090,6 +1113,10 @@ async def api_health() -> dict[str, Any]:
             "connected": STATE.connected,
             "endpoint": _safe_endpoint(NATS_URL),
             "stream": STREAM,
+            "chat_subject": CHAT_SUBJECT,
+            "agent_observation_subject": NATS_AGENT_OBSERVATION_SUBJECT,
+            "transport_principal": NATS_TRANSPORT_PRINCIPAL,
+            "transport_authority": NATS_TRANSPORT_AUTHORITY,
             "messages": stream.get("messages", STATE.messages),
             "first_seq": stream.get("first_seq"),
             "last_seq": stream.get("last_seq", STATE.last_seq),
