@@ -171,6 +171,7 @@ while IFS='=' read -r key value || [[ -n "$key" ]]; do
     NATS_URL) nats_url=$value ;;
     NATS_USER) nats_user=$value ;;
     NATS_PASSWORD) nats_pass=$value ;;
+    NATS_STREAM|AGENT_UID|CALLSIGN|CANONICAL_SUBJECT|DURABLE|INBOX_DIR) ;;
     *)
       echo "NATS credential input has an unexpected key." >&2
       exit 1
