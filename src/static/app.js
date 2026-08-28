@@ -1390,7 +1390,13 @@ function viewChat(root, route) {
       : 'Group transcript capability is not advertised by this hub.');
   const feed = el('section', { class: 'chat-feed', role: 'log', 'aria-label': `${title} messages`, 'aria-live': 'polite', 'aria-relevant': 'additions text' });
   const list = row ? dmList(row.uid) : state.chat;
-  const controller = feedController(feed, (message) => renderMessage(message, row && row.uid), 'No messages in the bounded replay window.');
+  const replayUnavailable = state.health
+    && state.health.startup_backfill
+    && state.health.startup_backfill.error === 'disabled_by_transport_tier';
+  const emptyCopy = replayUnavailable
+    ? 'No messages observed in this process-local live window. Startup replay is unavailable for this transport tier.'
+    : 'No messages in the bounded replay window.';
+  const controller = feedController(feed, (message) => renderMessage(message, row && row.uid), emptyCopy);
   root.append(
     heading('Chat', routeCopy),
     strip,

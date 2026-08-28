@@ -84,6 +84,8 @@ def test_chat_keeps_room_drafts_and_exposes_real_retry_control() -> None:
     assert "Retry this message" in APP
     assert "retryMessage" in APP
     assert "one multiplexed events/stream" in APP
+    assert "Startup replay is unavailable for this transport tier" in APP
+    assert "disabled_by_transport_tier" in APP
 
 
 def test_chat_identity_styling_requires_a_server_derived_claim() -> None:
