@@ -167,7 +167,13 @@ source "$nats_env_file"
 set +a
 nats_url=${CODEX_COMPOSER_NATS_URL:-}
 nats_user=${CODEX_COMPOSER_NATS_USER:-}
-nats_pass=$(tr -d '\r\n' <"$nats_secret_file")
+mapfile -t nats_secret_lines <"$nats_secret_file"
+if ((${#nats_secret_lines[@]} != 1)) \
+  || [[ "${nats_secret_lines[0]}" != CODEX_COMPOSER_NATS_PASSWORD=* ]]; then
+  echo "NATS secret input has an unexpected shape." >&2
+  exit 1
+fi
+nats_pass=${nats_secret_lines[0]#CODEX_COMPOSER_NATS_PASSWORD=}
 if [[ -z "$nats_url" || -z "$nats_user" || -z "$nats_pass" ]]; then
   echo "NATS credential inputs are incomplete." >&2
   exit 1
