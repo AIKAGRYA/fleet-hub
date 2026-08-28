@@ -20,12 +20,17 @@ if [[ ! "$port" =~ ^[0-9]+$ ]] || ((port < 1024 || port > 65535)); then
   exit 1
 fi
 
-# The launcher creates this root-only file. Sourcing keeps credentials out of
-# process arguments and tmux metadata; the values are never printed.
-set -a
-# shellcheck disable=SC1090
-source "$env_file"
-set +a
+# The launcher creates this root-only KEY=VALUE file. Read values literally:
+# credentials may contain shell metacharacters and must never be re-expanded.
+# Quoted export keeps them out of process arguments and tmux metadata.
+while IFS='=' read -r key value || [[ -n "$key" ]]; do
+  [[ -z "$key" ]] && continue
+  if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "Fleet host runner rejected an invalid environment key." >&2
+    exit 1
+  fi
+  export "$key=$value"
+done <"$env_file"
 
 exec "$python_bin" -m uvicorn server:app \
   --app-dir "$app_dir" \
