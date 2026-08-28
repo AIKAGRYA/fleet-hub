@@ -61,6 +61,11 @@ committed.
 No Caddy, systemd, AGNI, NATS server/stream/ACL, or credential file was changed.
 No live NATS publish canary was sent.
 
+Read-only AGNI service inspection found the active v0.6 unit and its environment
+and broker configuration paths, but did not establish its effective NATS
+principal or ACLs. Credential portability and production Fleet transport
+authority therefore remain **unknown**.
+
 ## Verification receipt
 
 - `uv run --no-sync pytest -q` — **271 passed**, one upstream Starlette
@@ -96,5 +101,7 @@ All listed Fleet evidence lives under `evidence/r10-20260828/`.
 - An empty Needs-John projection is scoped to the successful configured owner
   read, not fleet-wide discovery.
 - PR/CI success is review evidence, not deployment authority.
+- A working borrowed transport on Meghadharma is not evidence of authorization
+  to reuse AGNI's production identity or credentials.
 - This receipt does not qualify the candidate as production or world-class by
   self-assertion; it records challengeable code, runtime, and pixel evidence.

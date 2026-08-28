@@ -80,6 +80,12 @@ The transport principal is an authorization fact, not Fleet identity.
 Application envelopes retain the authenticated operator sender and their own
 correlation/causation/trace axes.
 
+Read-only inspection of the active AGNI v0.6 service established its systemd
+unit, environment-file path, and NATS service/configuration path, but not its
+effective NATS principal or ACL patterns. Whether any credential is portable
+or authorized for Fleet remains unknown. The isolated candidate's working
+connection does not close that authority gap.
+
 ## Owner boundary
 
 The companion owner change exposes only:
