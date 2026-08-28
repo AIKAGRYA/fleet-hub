@@ -25,6 +25,7 @@ owner_source="$candidate_root/dharma_swarm"
 fleet_source="$candidate_root/fleet-hub"
 runtime_dir="$candidate_root/runtime"
 state_root="$candidate_root/state"
+hub_venv="$runtime_dir/fleet-venv"
 fixture_name=fleet-hub-owner-fixture-r10
 mission_id=fleet-hub-r10-local
 owner_port=${FLEET_R10_OWNER_PORT:-8871}
@@ -32,7 +33,6 @@ fleet_port=${FLEET_R10_HUB_PORT:-8872}
 socket_name=fleet-r10
 session_name=fleet-r10-candidate
 owner_container=fleet-r10-owner
-hub_container=fleet-r10-hub
 seed_container=fleet-r10-seed
 runtime_image=${FLEET_R10_IMAGE:-dharma_swarm-swarm:0d83431a}
 nats_env_file=${FLEET_R10_NATS_ENV:-/etc/dharma/codex-composer-replica.env}
@@ -40,7 +40,6 @@ nats_secret_file=${FLEET_R10_NATS_SECRET:-/etc/dharma/codex-composer-nats.secret
 launch_complete=0
 session_created=0
 owner_launch_requested=0
-hub_launch_requested=0
 seed_launch_requested=0
 
 cleanup_partial_launch() {
@@ -49,9 +48,6 @@ cleanup_partial_launch() {
   if ((status != 0 && launch_complete == 0)); then
     if ((session_created == 1)); then
       tmux -L "$socket_name" kill-session -t "$session_name" >/dev/null 2>&1 || true
-    fi
-    if ((hub_launch_requested == 1)); then
-      docker container rm --force "$hub_container" >/dev/null 2>&1 || true
     fi
     if ((owner_launch_requested == 1)); then
       docker container rm --force "$owner_container" >/dev/null 2>&1 || true
@@ -75,7 +71,7 @@ if [[ "$owner_port" == "$fleet_port" ]]; then
   exit 1
 fi
 
-for command_name in curl docker jq openssl tmux; do
+for command_name in curl docker jq openssl tmux uv; do
   command -v "$command_name" >/dev/null || {
     echo "Missing required command: $command_name" >&2
     exit 1
@@ -90,6 +86,10 @@ done
   echo "Fleet source is absent: $fleet_source" >&2
   exit 1
 }
+[[ -x "$fleet_source/scripts/run_hub_from_env.sh" ]] || {
+  echo "Fleet host runner is absent or not executable." >&2
+  exit 1
+}
 [[ -f "$nats_env_file" && -f "$nats_secret_file" ]] || {
   echo "Expected read-only NATS credential files are absent." >&2
   exit 1
@@ -100,7 +100,7 @@ if tmux -L "$socket_name" has-session -t "$session_name" 2>/dev/null; then
   echo "Session already exists: $session_name" >&2
   exit 1
 fi
-for container_name in "$seed_container" "$owner_container" "$hub_container"; do
+for container_name in "$seed_container" "$owner_container"; do
   if docker container inspect "$container_name" >/dev/null 2>&1; then
     echo "Container name already exists: $container_name" >&2
     exit 1
@@ -115,6 +115,19 @@ chmod 700 \
   "$state_root/home" \
   "$state_root/home/.dharma" \
   "$state_root/home/.dharma/traces"
+
+# The pinned owner image intentionally remains unchanged. Fleet gets its own
+# lockfile-resolved host environment under the isolated runtime directory so
+# nats-py is present without mutating the source tree or any live image.
+UV_PROJECT_ENVIRONMENT="$hub_venv" \
+  UV_PYTHON=python3 \
+  uv sync \
+    --project "$fleet_source" \
+    --locked \
+    --no-dev \
+    --no-python-downloads \
+    --no-progress >/dev/null
+"$hub_venv/bin/python" -c 'import fastapi, nats, uvicorn' >/dev/null
 
 owner_token_file="$runtime_dir/owner-token"
 fleet_token_file="$runtime_dir/fleet-login-token"
@@ -271,24 +284,13 @@ if [[ "$owner_ready" -ne 1 ]]; then
 fi
 
 hub_args=(
-  docker run --rm
-  --name "$hub_container"
-  --network host
-  --entrypoint /usr/local/bin/python
-  --cap-drop ALL
-  --security-opt no-new-privileges
-  --pids-limit 256
-  --memory 768m
-  --env-file "$hub_env"
-  -v "$fleet_source:/fleet:ro"
-  "$runtime_image"
-  -m uvicorn server:app
-  --app-dir /fleet/src
-  --host 127.0.0.1
-  --port "$fleet_port"
+  "$fleet_source/scripts/run_hub_from_env.sh"
+  "$hub_env"
+  "$hub_venv/bin/python"
+  "$fleet_source/src"
+  "$fleet_port"
 )
 printf -v hub_command '%q ' "${hub_args[@]}"
-hub_launch_requested=1
 tmux -L "$socket_name" new-window -t "$session_name" -n hub "$hub_command"
 
 hub_ready=0
