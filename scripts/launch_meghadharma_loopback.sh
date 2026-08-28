@@ -145,6 +145,7 @@ owner_curl_config="$runtime_dir/owner-curl.conf"
 owner_snapshot_file="$runtime_dir/owner-snapshot.json"
 hub_curl_config="$runtime_dir/hub-curl.conf"
 hub_bootstrap_file="$runtime_dir/hub-bootstrap.json"
+hub_health_file="$runtime_dir/hub-health.json"
 {
   printf 'fail\n'
   printf 'silent\n'
@@ -221,6 +222,7 @@ hub_env="$runtime_dir/hub.env"
   printf 'FLEET_HUB_NATS_AGENT_OBSERVATION_SUBJECT=\n'
   printf 'FLEET_HUB_NATS_TRANSPORT_PRINCIPAL=%s\n' "$nats_principal"
   printf 'FLEET_HUB_NATS_TRANSPORT_AUTHORITY=borrowed_existing_transport_only\n'
+  printf 'FLEET_HUB_NATS_STARTUP_REPLAY=0\n'
   printf 'NATS_URL=%s\n' "$nats_url"
   printf 'NATS_USER=%s\n' "$nats_user"
   printf 'NATS_PASS=%s\n' "$nats_pass"
@@ -331,7 +333,22 @@ for _ in $(seq 1 120); do
       and .capabilities.mission_read == true
       and .capabilities.mission_commands.available == false
       and .capabilities.chat.available == true
-    ' "$hub_bootstrap_file" >/dev/null; then
+    ' "$hub_bootstrap_file" >/dev/null \
+    && curl --config "$hub_curl_config" \
+      --output "$hub_health_file" \
+      "http://127.0.0.1:$fleet_port/api/health" \
+    && jq --exit-status --arg principal "$nats_principal" '
+      .ok == true
+      and .broker.connected == true
+      and .broker.stream == "DHARMA_A2A"
+      and .broker.chat_subject == "dharma.a2a.fleet"
+      and .broker.agent_observation_subject == null
+      and .broker.transport_principal == $principal
+      and .broker.transport_authority == "borrowed_existing_transport_only"
+      and .broker.error == null
+      and .startup_backfill.error == "disabled_by_transport_tier"
+      and .startup_backfill.durable_resume == false
+    ' "$hub_health_file" >/dev/null; then
     hub_ready=1
     break
   fi

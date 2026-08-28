@@ -1084,7 +1084,17 @@ async def nats_loop(state, cfg, roster) -> None:
             state.connected = True
             state.last_error = None
             if state.replay["ran_at"] is None:
-                await replay(state, cfg, roster)
+                if getattr(cfg, "startup_replay_enabled", True):
+                    await replay(state, cfg, roster)
+                else:
+                    state.replay.update(
+                        {
+                            "ok": None,
+                            "complete": None,
+                            "error": "disabled_by_transport_tier",
+                            "ran_at": presence_mod.iso(time.time()),
+                        }
+                    )
 
             async def on_msg(msg) -> None:
                 try:

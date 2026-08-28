@@ -1139,7 +1139,7 @@ async def test_live_loop_can_use_bounded_a2a_observation_tier(
     cfg.password = None
     cfg.agent_observation_subject = None
     cfg.chat_subject = "dharma.a2a.fleet"
-    hub_state.replay["ran_at"] = "already-replayed"
+    cfg.startup_replay_enabled = False
     monkeypatch.setattr(natsio.nats, "connect", connect)
     monkeypatch.setattr(natsio.asyncio, "sleep", stop_after_first_connection)
 
@@ -1147,6 +1147,8 @@ async def test_live_loop_can_use_bounded_a2a_observation_tier(
         await natsio.nats_loop(hub_state, cfg, roster)
 
     assert nc.subjects == ["dharma.a2a.>"]
+    assert hub_state.replay["error"] == "disabled_by_transport_tier"
+    assert hub_state.replay["ran_at"] is not None
 
 
 def test_payload_sender_remains_reported_unverified(

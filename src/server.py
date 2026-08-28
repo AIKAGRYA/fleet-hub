@@ -140,6 +140,9 @@ REPLAY_STREAMS = tuple(
     for stream in os.environ.get("FLEET_REPLAY_STREAMS", "DHARMA_A2A").split(",")
     if stream.strip()
 )[:16]
+NATS_STARTUP_REPLAY_ENABLED = os.environ.get(
+    "FLEET_HUB_NATS_STARTUP_REPLAY", "1"
+).strip().casefold() not in {"0", "false", "no", "off"}
 MISSION_IDS = tuple(
     mission_id.strip()
     for mission_id in os.environ.get("FLEET_HUB_MISSION_IDS", "").split(",")
@@ -186,6 +189,7 @@ CFG = SimpleNamespace(
     recent_window_s=RECENT_WINDOW_S,
     replay_hours=REPLAY_HOURS,
     replay_streams=REPLAY_STREAMS,
+    startup_replay_enabled=NATS_STARTUP_REPLAY_ENABLED,
     dedupe_namespace=DEDUPE_NAMESPACE,
 )
 
