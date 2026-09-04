@@ -37,8 +37,14 @@ screenshots, geometry assertions, and the complete local test result.
 
 ## Deliberately unavailable
 
-- There is no configured production transport from AGNI to an authenticated
-  owner-backed Mission Control service. The default provider fails closed.
+- The authenticated read-only owner adapter now exists in code
+  (`src/hub/mission_http_provider.py`, selected by
+  `FLEET_HUB_MISSION_PROVIDER_URL` + `_TOKEN` + `FLEET_HUB_MISSION_IDS`; owner
+  side: `dharma_swarm` `api/routers/mission_control.py`). It has been proven
+  only in a local integration run (`docs/FLEET_HUB_OWNER_ADAPTER_EVIDENCE.md`).
+  No production host has it configured; on AGNI the default provider still
+  fails closed until the operator sets the three values in
+  `/etc/dharma/fleet-hub.env` against a running owner.
 - The canonical TaskBoard owner has no verified atomic expected-version
   transition. Consequently steer, assign, claim, approve, retry, move, and
   arbitrary task transition controls are disabled.
@@ -70,7 +76,9 @@ cannot silently widen what the system is entitled to claim.
 ## Promotion gates remaining
 
 1. Review and merge this candidate branch with CI green.
-2. Specify and implement the authenticated read-only owner adapter.
+2. ~~Specify and implement the authenticated read-only owner adapter.~~
+   Implemented and locally evidenced (see `docs/FLEET_HUB_OWNER_ADAPTER_EVIDENCE.md`);
+   production configuration against a live owner remains an operator act.
 3. Add atomic TaskBoard expected-version semantics before enabling commands.
 4. Obtain a least-privilege A2A/ACK/reply ACL and approve a named canary.
 5. Run the real-device, accessibility, reconnect, upgrade, load, and rollback

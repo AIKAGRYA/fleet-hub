@@ -55,6 +55,10 @@ src/
 | `FLEET_HUB_INSECURE_COOKIE` | unset | `1` only for local HTTP development |
 | `FLEET_HUB_BASE_PATH` | `/fleet/` | Service-worker allowance; set `/` only for root-mounted local development |
 | `FLEET_HUB_MAX_BODY_BYTES` | bounded server default | Pre-parse HTTP request-body ceiling; proxy ceiling must be no larger |
+| `FLEET_HUB_MISSION_IDS` | empty | Comma-separated mission IDs the phone may ask the owner about; discovery is never wider than this list |
+| `FLEET_HUB_MISSION_PROVIDER_URL` | unset | Base URL of the canonical owner's read-only Mission Control HTTP projection (`dharma_swarm` `api/routers/mission_control.py`); unset keeps the provider unavailable |
+| `FLEET_HUB_MISSION_PROVIDER_TOKEN` | unset | Owner bearer credential (the owner's `DASHBOARD_API_KEY`); host-side only, never echoed by any route or error |
+| `FLEET_HUB_MISSION_PROVIDER_TIMEOUT_MS` | `2000` | Per-request owner timeout; a slow owner is `provider_unavailable`, never a stale render |
 | `NATS_URL` | `nats://127.0.0.1:4222` | Governed existing bus; no second bus |
 | `NATS_USER` / `NATS_PASS` | unset | Credentials remain host-side only |
 | `NATS_STREAM` | `DHARMA_A2A` | Compatibility stream configuration |
@@ -71,6 +75,21 @@ not an empty task list.
 Mission `source_version` values are Fleet Hub projection digests, not an atomic
 TaskBoard expected-version primitive. They support bounded reads and client
 invalidation only.
+
+## Owner adapter
+
+`hub/mission_http_provider.py` is the first real `MissionProvider`: a
+read-only, bearer-authenticated HTTP client over the canonical owner's
+Mission Control projection. It is selected only when all three of
+`FLEET_HUB_MISSION_PROVIDER_URL`, `FLEET_HUB_MISSION_PROVIDER_TOKEN`, and
+`FLEET_HUB_MISSION_IDS` are set; any missing value keeps the fail-closed
+unavailable provider. Every owner body passes through
+`hub.mission_contract.validate_owner_snapshot`; an invalid body, a mismatched
+mission identity, a non-200 answer, or a timeout is reported as
+`provider_unavailable`. `GET /api/v1/bootstrap` reports which adapter is bound
+under `connections.mission_provider_kind` (`owner_http_read_only`,
+`unavailable`, or `unavailable_misconfigured`) without exposing the URL or
+credential. Commands remain disabled regardless of adapter.
 
 ## Install boundary
 

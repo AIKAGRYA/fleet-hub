@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hub import BUILD_STATUS, VERSION, auth, monitor, natsio, presence
+from hub.mission_http_provider import HttpMissionProvider
 from hub.mission_provider import (
     DEFAULT_MISSION_PROVIDER,
     MissionCatalog,
@@ -113,6 +114,13 @@ MISSION_IDS = tuple(
     for mission_id in os.environ.get("FLEET_HUB_MISSION_IDS", "").split(",")
     if mission_id.strip()
 )
+# Owner adapter (read-only HTTP projection served by the canonical owner).
+# Both values are host-side configuration; the token stays in process memory
+# and is never echoed by any route, log line, or error payload.
+MISSION_PROVIDER_URL = (os.environ.get("FLEET_HUB_MISSION_PROVIDER_URL") or "").strip()
+MISSION_PROVIDER_TOKEN = (
+    os.environ.get("FLEET_HUB_MISSION_PROVIDER_TOKEN") or ""
+).strip()
 CONFIGURED_ORIGINS = frozenset(
     origin.strip().rstrip("/").lower()
     for origin in os.environ.get("FLEET_HUB_ALLOWED_ORIGINS", "").split(",")
@@ -280,9 +288,34 @@ async def lifespan(app: FastAPI):
             STATE.bus.detach(queue)
 
 
+def _select_mission_provider() -> tuple[MissionProvider, str]:
+    """Pick the owner adapter from host configuration, failing closed.
+
+    Returns the provider and a public, credential-free label for bootstrap.
+    An owner URL without a token (or without configured mission IDs) keeps the
+    unavailable provider: Fleet Hub never guesses an owner or renders an empty
+    board as evidence.
+    """
+
+    if MISSION_PROVIDER_URL and MISSION_PROVIDER_TOKEN and MISSION_IDS:
+        try:
+            provider: MissionProvider = HttpMissionProvider(
+                MISSION_PROVIDER_URL,
+                MISSION_PROVIDER_TOKEN,
+                MISSION_IDS,
+                timeout_s=MISSION_PROVIDER_TIMEOUT_S,
+            )
+        except ValueError:
+            return UnavailableMissionProvider(MISSION_IDS), "unavailable_misconfigured"
+        return provider, "owner_http_read_only"
+    if MISSION_IDS:
+        return UnavailableMissionProvider(MISSION_IDS), "unavailable"
+    return DEFAULT_MISSION_PROVIDER, "unavailable"
+
+
 app = FastAPI(title="Dharma Fleet Hub", version=VERSION, lifespan=lifespan)
-app.state.mission_provider = (
-    UnavailableMissionProvider(MISSION_IDS) if MISSION_IDS else DEFAULT_MISSION_PROVIDER
+app.state.mission_provider, app.state.mission_provider_kind = (
+    _select_mission_provider()
 )
 app.state.sessions = SESSIONS
 # Provenance is explicit so a fixture-backed browser build cannot be mistaken
@@ -1317,6 +1350,9 @@ async def api_v1_bootstrap(request: Request) -> dict[str, Any]:
             "hub": True,
             "nats": STATE.connected,
             "mission_control": bool(catalog and catalog.available),
+            "mission_provider_kind": str(
+                getattr(request.app.state, "mission_provider_kind", "unavailable")
+            )[:64],
             "observed_at": utc_now(),
         },
         "missions": mission_data,
